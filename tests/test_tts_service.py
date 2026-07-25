@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -11,6 +12,11 @@ from mlshorts.models import Scene, SceneRole, VideoScript
 from mlshorts.storage.paths import Paths
 from mlshorts.tts.duration import FFprobeDurationProbe
 from mlshorts.tts.service import NarrationGenerator, NarrationService
+
+requires_ffmpeg = pytest.mark.skipif(
+    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+    reason="FFmpeg indisponivel",
+)
 
 DURATIONS = {"gancho": 3.0, "apresentacao": 12.0, "prova_social": 10.0, "cta": 5.0}
 
@@ -154,10 +160,11 @@ def test_service_registra_falha_e_continua(tmp_path):
     assert json.loads(next(paths.out.glob("narration-*.json")).read_text(encoding="utf-8")) == []
 
 
+@requires_ffmpeg
 def test_ffprobe_mede_duracao_real(tmp_path):
     """Sanity check com um MP3 de 1s gerado pelo proprio FFmpeg."""
     audio = tmp_path / "silencio.mp3"
-    result = subprocess.run(
+    subprocess.run(
         [
             "ffmpeg",
             "-v",
@@ -171,14 +178,13 @@ def test_ffprobe_mede_duracao_real(tmp_path):
             str(audio),
         ],
         capture_output=True,
-        check=False,
+        check=True,
     )
-    if result.returncode != 0:
-        pytest.skip("ffmpeg indisponivel")
 
     assert FFprobeDurationProbe()(audio) == pytest.approx(1.0, abs=0.1)
 
 
+@requires_ffmpeg
 def test_ffprobe_falha_em_arquivo_invalido(tmp_path):
     invalido = tmp_path / "nao-audio.mp3"
     invalido.write_bytes(b"nao sou audio")
