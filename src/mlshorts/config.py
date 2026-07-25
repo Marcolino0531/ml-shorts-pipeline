@@ -67,6 +67,24 @@ class ScriptGenConfig(BaseModel):
     retry_when_too_long: bool = True
 
 
+class PublishingConfig(BaseModel):
+    """Controle de ritmo de publicacao: nunca postar tudo de uma vez."""
+
+    # intervalo minimo entre duas publicacoes do mesmo nicho
+    min_interval_hours: float = 24.0
+    # sobrescreve o intervalo para nichos especificos, ex.: {"Informatica": 12}
+    interval_hours_by_niche: dict[str, float] = Field(default_factory=dict)
+    # json | sqlite
+    backend: str = "sqlite"
+    # caminho do arquivo de fila/historico, relativo a raiz do projeto
+    queue_path: str = "data/out/publications.sqlite3"
+    # quantos videos no maximo publicar por execucao do `publish-queue`
+    max_per_run: int = 1
+
+    def interval_for(self, niche: str) -> float:
+        return self.interval_hours_by_niche.get(niche, self.min_interval_hours)
+
+
 class VideoConfig(BaseModel):
     width: int = 1080
     height: int = 1920
@@ -80,6 +98,7 @@ class Settings(BaseModel):
     filters: FilterConfig = Field(default_factory=FilterConfig)
     scriptgen: ScriptGenConfig = Field(default_factory=ScriptGenConfig)
     video: VideoConfig = Field(default_factory=VideoConfig)
+    publishing: PublishingConfig = Field(default_factory=PublishingConfig)
 
 
 def load_settings(path: Path | None = None) -> Settings:
