@@ -1,8 +1,11 @@
-"""CLI do pipeline. Hoje expoe a etapa de coleta; as demais entram nas proximas fases."""
+"""CLI do pipeline: coleta, roteiro, narracao, fila de publicacao e dashboard."""
 
 from __future__ import annotations
 
 import logging
+import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -12,6 +15,7 @@ from rich.table import Table
 
 from mlshorts.collectors.service import CollectionService
 from mlshorts.config import load_settings
+from mlshorts.dashboard.data import CONFIG_ENV_VAR
 from mlshorts.logging_setup import setup_logging
 from mlshorts.models import PublicationStatus
 from mlshorts.publish import PublicationScheduler
@@ -196,6 +200,41 @@ def queue_list(
             item.scheduled_for.isoformat(timespec="minutes"),
         )
     console.print(table)
+
+
+@app.command()
+def dashboard(
+    config: ConfigOption = None,
+    port: Annotated[int, typer.Option("--port", help="Porta do servidor Streamlit.")] = 8501,
+    host: Annotated[str, typer.Option("--host", help="Endereco de escuta.")] = "localhost",
+) -> None:
+    """Sobe o dashboard Streamlit com as abas de produtos, roteiros, midia e fila."""
+    from mlshorts.dashboard import APP_PATH
+
+    env = dict(os.environ)
+    env.setdefault("STREAMLIT_BROWSER_GATHER_USAGE_STATS", "false")
+    if config:
+        env[CONFIG_ENV_VAR] = str(config.resolve())
+
+    command = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(APP_PATH),
+        "--server.port",
+        str(port),
+        "--server.address",
+        host,
+        # headless evita o prompt de e-mail do Streamlit no primeiro uso
+        "--server.headless",
+        "true",
+    ]
+    console.print(f"Dashboard em [bold]http://{host}:{port}[/bold] (Ctrl+C para parar)")
+    try:
+        raise SystemExit(subprocess.call(command, env=env))
+    except FileNotFoundError as exc:  # streamlit ausente
+        raise typer.Exit(code=1) from exc
 
 
 @app.command()

@@ -100,6 +100,8 @@ class PublishingConfig(BaseModel):
     queue_path: str = "data/out/publications.sqlite3"
     # quantos videos no maximo publicar por execucao do `publish-queue`
     max_per_run: int = 1
+    # true exige aprovacao manual (botao do dashboard) antes de qualquer publicacao
+    require_approval: bool = False
 
     def interval_for(self, niche: str) -> float:
         return self.interval_hours_by_niche.get(niche, self.min_interval_hours)

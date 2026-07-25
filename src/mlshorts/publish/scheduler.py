@@ -102,6 +102,9 @@ class PublicationScheduler:
                 scheduled_for=scheduled_for,
             )
         )
+        if self.config.require_approval:
+            logger.info("%s aguardando aprovacao manual no dashboard", item.id)
+            return item
         if scheduled_for <= moment:
             return self._publish(item, moment)
         logger.info(
@@ -123,6 +126,32 @@ class PublicationScheduler:
                 slot = max(slot, _utc(pending.scheduled_for) + interval)
         return slot
 
+    def approve(self, item_id: str, now: datetime | None = None) -> QueuedPublication:
+        """Libera o item na aprovacao manual; publica na hora se o horario dele ja passou."""
+        moment = _utc(now)
+        item = self.store.get(item_id)
+        if item is None:
+            raise KeyError(f"Item de publicacao inexistente: {item_id}")
+        if item.status is not PublicationStatus.PENDING:
+            raise ValueError(f"{item_id} nao esta pendente (status={item.status.value})")
+        item.approved_at = moment
+        item = self.store.update(item)
+        if item.scheduled_for <= moment and self.next_slot(item.niche, moment) <= moment:
+            return self._publish(item, moment)
+        return item
+
+    def cancel(self, item_id: str) -> QueuedPublication:
+        item = self.store.get(item_id)
+        if item is None:
+            raise KeyError(f"Item de publicacao inexistente: {item_id}")
+        item.status = PublicationStatus.CANCELLED
+        return self.store.update(item)
+
+    def awaiting_approval(self) -> list[QueuedPublication]:
+        if not self.config.require_approval:
+            return []
+        return [item for item in self.store.pending() if item.approved_at is None]
+
     def process_due(
         self, now: datetime | None = None, limit: int | None = None
     ) -> list[QueuedPublication]:
@@ -134,6 +163,9 @@ class PublicationScheduler:
         for item in self.store.due(moment):
             if len(published) >= max_items:
                 break
+            if self.config.require_approval and item.approved_at is None:
+                logger.info("%s vencido mas sem aprovacao manual: mantido na fila", item.id)
+                continue
             slot = self.next_slot(item.niche, moment)
             if slot > moment:
                 item.scheduled_for = slot

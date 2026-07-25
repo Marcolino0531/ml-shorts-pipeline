@@ -13,6 +13,7 @@ Pipeline em Python para automatizar vídeos curtos (TikTok/Shorts) de produtos e
 | 5 | Montagem 1080x1920 com FFmpeg e legendas dinâmicas | `mlshorts.video` | próxima fase |
 | 6 | Publicação com intervalo mínimo por nicho e fila agendada | `mlshorts.publish` | implementado |
 | 7 | Metadados (título, descrição, hashtags, link de afiliado) | `mlshorts.publish` | próxima fase |
+| — | Dashboard Streamlit de acompanhamento | `mlshorts.dashboard` | implementado |
 
 ## Estrutura
 
@@ -41,7 +42,11 @@ src/mlshorts/
     store.py              fila + historico (JsonPublicationStore | SqlitePublicationStore)
     scheduler.py          PublicationScheduler: intervalo por nicho, enfileiramento e process_due
   video/                  montagem FFmpeg (proxima fase)
+  dashboard/
+    data.py               DashboardData: le os artefatos de data/ e a fila (sem Streamlit)
+    app.py                painel com as abas Produtos/Roteiros/Audio/Video/Fila
   storage/paths.py        convenção de diretórios em data/
+scripts/seed_demo_data.py  popula data/ com artefatos ficticios para ver o painel
 data/{raw,images,audio,video,out}   artefatos por etapa (versionados apenas os .gitkeep)
 tests/                    testes unitários (HTTP mockado com respx)
 ```
@@ -75,6 +80,9 @@ mlshorts narrate --product-id MLB123 -v    # apenas um produto
 mlshorts queue-add --product-id MLB123 --niche Celulares --media data/video/MLB123.mp4
 mlshorts publish-queue          # rode periodicamente (cron): publica o que ja pode ir ao ar
 mlshorts queue-list --status pending
+
+mlshorts dashboard                         # painel em http://localhost:8501
+mlshorts dashboard --port 8080 -c config/settings.yaml
 ```
 
 Cron sugerido (de hora em hora):
@@ -105,6 +113,26 @@ A resposta é sempre estruturada:
 O `ScriptGenerator` valida a presença dos quatro blocos, reordena as cenas, estima a duração
 (`palavras / words_per_second`, default 2.6 para pt-BR) e, se passar de 45s, pede uma reescrita
 mais curta antes de desistir. A saída vai para `data/out/scripts-<timestamp>.json`.
+
+## Dashboard (`dashboard`)
+
+```bash
+pip install -e ".[dashboard]"   # ou ".[dev]"
+mlshorts dashboard
+```
+
+Abas: **Produtos** (tabela da coleta, ficha técnica, comentários, imagens e indicadores de
+etapa concluída), **Roteiros** (cenas com fala e instrução visual), **Áudio** (`st.audio` por
+cena, com início e duração vindos do manifesto da narração), **Vídeo** (`st.video` quando o MP4
+da etapa do FFmpeg existir) e **Fila** (status, horário agendado, aprovação, publicação e erro).
+
+O painel só **lê** `data/` mais a fila configurada em `publishing.queue_path` — nenhuma etapa é
+disparada por ele, exceto os botões **Aprovar** / **Cancelar** da fila. Com
+`publishing.require_approval: true`, nada é publicado sem aprovação: `queue-add` deixa o item
+`pending` e o `publish-queue` ignora itens sem `approved_at`.
+
+Para ver o painel sem gastar API: `python scripts/seed_demo_data.py` gera produto, roteiro,
+áudios (silêncio via FFmpeg) e dois itens de fila fictícios.
 
 ## Narração (`tts`)
 
