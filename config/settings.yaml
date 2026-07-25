@@ -59,6 +59,8 @@ publishing:
   queue_path: data/out/publications.sqlite3
   # quantos videos no maximo sao publicados a cada execucao de `mlshorts publish-queue`
   max_per_run: 1
+  # true exige clicar em "Aprovar" no dashboard antes de qualquer publicacao
+  require_approval: false
 
 video:
   width: 1080

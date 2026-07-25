@@ -155,6 +155,8 @@ class QueuedPublication(BaseModel):
     status: PublicationStatus = PublicationStatus.PENDING
     scheduled_for: datetime
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # preenchido pela aprovacao manual (dashboard) quando publishing.require_approval
+    approved_at: datetime | None = None
     published_at: datetime | None = None
     error: str | None = None
 
