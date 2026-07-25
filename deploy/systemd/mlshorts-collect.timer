@@ -1,0 +1,13 @@
+[Unit]
+Description=Roda a coleta + render do ml-shorts-pipeline a cada 12 horas
+
+[Timer]
+# 06:00 e 18:00 no fuso do servidor
+OnCalendar=*-*-* 06,18:00:00
+# se a VPS estava desligada no horario, roda ao ligar
+Persistent=true
+RandomizedDelaySec=300
+Unit=mlshorts-collect.service
+
+[Install]
+WantedBy=timers.target

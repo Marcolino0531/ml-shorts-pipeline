@@ -1,0 +1,15 @@
+[Unit]
+Description=ml-shorts-pipeline: processa a fila de publicacao (YouTube/TikTok)
+Documentation=https://github.com/Marcolino0531/ml-shorts-pipeline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# ajuste User e os caminhos se o repositorio nao estiver em /root
+User=root
+WorkingDirectory=/root/ml-shorts-pipeline
+ExecStart=/root/ml-shorts-pipeline/.venv/bin/mlshorts publish --process-queue
+TimeoutStartSec=1800
+StandardOutput=append:/root/ml-shorts-pipeline/data/out/publish.log
+StandardError=inherit
