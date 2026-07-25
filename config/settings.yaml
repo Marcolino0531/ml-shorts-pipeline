@@ -1,0 +1,32 @@
+# Categorias monitoradas (IDs do Mercado Livre, site MLB).
+# Consulte https://api.mercadolibre.com/sites/MLB/categories para a lista completa.
+categories:
+  - id: MLB1051
+    name: Celulares e Telefones
+  - id: MLB1648
+    name: Informatica
+  - id: MLB1000
+    name: Eletronicos, Audio e Video
+
+collector:
+  # quantos produtos em alta buscar por categoria antes de filtrar
+  highlights_per_category: 20
+  # quantos produtos aprovados manter por categoria
+  max_products_per_category: 5
+  # quantos comentarios positivos extrair por produto
+  max_reviews_per_product: 8
+  # quantas imagens em alta resolucao baixar por produto
+  max_images_per_product: 5
+
+filters:
+  min_rating: 4.5
+  min_reviews: 20
+  min_sold_quantity: 500
+  # descarta produtos sem imagem em resolucao suficiente para 1080x1920
+  min_image_width: 800
+
+video:
+  width: 1080
+  height: 1920
+  fps: 30
+  max_duration_seconds: 45
