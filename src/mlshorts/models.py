@@ -158,6 +158,8 @@ class QueuedPublication(BaseModel):
     # preenchido pela aprovacao manual (dashboard) quando publishing.require_approval
     approved_at: datetime | None = None
     published_at: datetime | None = None
+    # url do post por rede, preenchida pelo publisher (ex.: {"youtube": "https://..."})
+    published_urls: dict[str, str] = Field(default_factory=dict)
     error: str | None = None
 
     def is_due(self, now: datetime) -> bool:

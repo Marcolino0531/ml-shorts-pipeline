@@ -12,7 +12,7 @@ Pipeline em Python para automatizar vídeos curtos (TikTok/Shorts) de produtos e
 | 4 | Narração via ElevenLabs (áudio por cena + duração exata) | `mlshorts.tts` | implementado |
 | 5 | Montagem 1080x1920 com FFmpeg e legendas dinâmicas | `mlshorts.video` | implementado |
 | 6 | Publicação com intervalo mínimo por nicho e fila agendada | `mlshorts.publish` | implementado |
-| 7 | Metadados (título, descrição, hashtags, link de afiliado) | `mlshorts.publish` | próxima fase |
+| 7 | Metadados (título, descrição, hashtags, link de afiliado) + post no YouTube/TikTok | `mlshorts.publish` | implementado |
 | — | Dashboard Streamlit de acompanhamento | `mlshorts.dashboard` | implementado |
 
 ## Estrutura
@@ -41,6 +41,10 @@ src/mlshorts/
   publish/
     store.py              fila + historico (JsonPublicationStore | SqlitePublicationStore)
     scheduler.py          PublicationScheduler: intervalo por nicho, enfileiramento e process_due
+    metadata.py           titulo, descricao, hashtags do nicho e link de afiliado do ML
+    youtube.py            YouTubePublisher: upload retomavel na Data API v3 como Shorts
+    tiktok.py             TikTokPublisher: Content Posting API (init -> upload -> status)
+    publishers.py         build_publisher() + MultiPublisher (varias redes por post)
   video/
     captions.py           legendas dinamicas (.ass) com a minutagem do narration.json
     renderer.py           VideoRenderer: um comando FFmpeg (imagens + audios + legendas)
@@ -84,7 +88,8 @@ mlshorts render                            # monta os MP4 1080x1920 em data/vide
 mlshorts render --product-id MLB123 -v     # apenas um produto
 
 mlshorts queue-add --product-id MLB123 --niche Celulares --media data/video/MLB123.mp4
-mlshorts publish-queue          # rode periodicamente (cron): publica o que ja pode ir ao ar
+mlshorts publish --process-queue           # cron: posta no YouTube/TikTok o que ja pode ir ao ar
+mlshorts publish --process-queue --dry-run # so registra no log, sem postar
 mlshorts queue-list --status pending
 
 mlshorts dashboard                         # painel em http://localhost:8501
@@ -94,7 +99,7 @@ mlshorts dashboard --port 8080 -c config/settings.yaml
 Cron sugerido (de hora em hora):
 
 ```cron
-0 * * * * cd /caminho/do/projeto && .venv/bin/mlshorts publish-queue >> data/out/publish.log 2>&1
+0 * * * * cd /caminho/do/projeto && .venv/bin/mlshorts publish --process-queue >> data/out/publish.log 2>&1
 ```
 
 Saída: `data/raw/products-<timestamp>.json` com os produtos aprovados (título, preço, nota,
@@ -207,8 +212,42 @@ publishing:
   intervalo contra a última publicação do nicho, publica no máximo `max_per_run` por rodada e
   reagenda os demais.
 - Falha na publicação marca o item como `failed` e **não** consome a janela do nicho.
-- O destino final ainda é o `DryRunPublisher` (só loga); a integração com as redes entra junto
-  com os metadados, implementando o protocolo `Publisher`.
+
+## Postagem nas redes (`publish --process-queue`)
+
+```yaml
+publishing:
+  platforms: [youtube, tiktok]   # dry-run enquanto estiver testando
+  affiliate_param: matt_word
+  default_hashtags: [achadinhos, mercadolivre, ofertas]
+  hashtags_by_niche:
+    Celulares: [celular, tecnologia]
+  youtube:
+    category_id: "22"
+    privacy_status: public
+    shorts_tag: "#Shorts"
+  tiktok:
+    privacy_level: SELF_ONLY     # obrigatório enquanto o app estiver em sandbox
+```
+
+- **Metadados** (`MetadataBuilder`): título = gancho do roteiro (fallback no título do produto)
+  + `#Shorts`, cortado em 100 caracteres; descrição com nota, unidades vendidas, link de
+  afiliado e as hashtags do nicho + as globais (sem repetir, limitadas por `max_hashtags`);
+  o link recebe `matt_word=<ML_AFFILIATE_TAG>` sem duplicar parâmetros já presentes.
+- **YouTube** (`YouTubePublisher`): `videos.insert(part="snippet,status")` com `MediaFileUpload`
+  resumível em chunks; o vídeo entra como Shorts pelo formato vertical + `#Shorts` no título e
+  na descrição. Precisa de `YOUTUBE_CLIENT_ID`/`YOUTUBE_CLIENT_SECRET`/`YOUTUBE_REFRESH_TOKEN`
+  (escopo `youtube.upload`).
+- **TikTok** (`TikTokPublisher`): `POST /v2/post/publish/video/init/` → `PUT` no `upload_url` →
+  poll em `/v2/post/publish/status/fetch/` até `PUBLISH_COMPLETE`. A API responde HTTP 200 com
+  `error.code` preenchido, então o corpo é sempre verificado. Precisa de `TIKTOK_ACCESS_TOKEN`
+  (escopo `video.publish`).
+- Com mais de uma rede, o `MultiPublisher` posta em todas: uma rede fora do ar registra o erro
+  no item, e o item só vira `failed` se **nenhuma** rede aceitar.
+- A fila continua no comando: só sai o que está vencido (`scheduled_for`), com `approved_at`
+  quando `require_approval` está ligado, e no máximo `max_per_run` por rodada. As URLs dos
+  posts ficam em `published_urls` e aparecem na aba Fila do dashboard.
+- `--dry-run` troca todos os destinos pelo `DryRunPublisher` (só loga) sem mexer no YAML.
 
 ## Estratégia de coleta
 

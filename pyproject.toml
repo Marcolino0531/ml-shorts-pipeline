@@ -19,6 +19,10 @@ dependencies = [
 dashboard = [
     "streamlit>=1.36.0",
 ]
+publish = [
+    "google-api-python-client>=2.100.0",
+    "google-auth>=2.23.0",
+]
 dev = [
     "pytest>=8.2.0",
     "pytest-asyncio>=0.23.7",
@@ -27,6 +31,8 @@ dev = [
     "mypy>=1.10.0",
     "types-PyYAML>=6.0.12",
     "streamlit>=1.36.0",
+    "google-api-python-client>=2.100.0",
+    "google-auth>=2.23.0",
 ]
 
 [project.scripts]
@@ -57,7 +63,7 @@ mypy_path = "src"
 packages = ["mlshorts"]
 
 [[tool.mypy.overrides]]
-module = ["playwright.*", "streamlit.*"]
+module = ["playwright.*", "streamlit.*", "googleapiclient.*", "google.oauth2.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

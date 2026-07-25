@@ -33,9 +33,21 @@ class Secrets(BaseSettings):
     elevenlabs_api_key: str | None = None
     elevenlabs_voice_id: str | None = None
 
+    # OAuth do YouTube: client + refresh token gerados uma vez no consentimento
+    youtube_client_id: str | None = None
+    youtube_client_secret: str | None = None
+    youtube_refresh_token: str | None = None
+    tiktok_access_token: str | None = None
+
     @property
     def has_ml_credentials(self) -> bool:
         return bool(self.ml_client_id and self.ml_client_secret)
+
+    @property
+    def has_youtube_credentials(self) -> bool:
+        return bool(
+            self.youtube_client_id and self.youtube_client_secret and self.youtube_refresh_token
+        )
 
 
 class CategoryConfig(BaseModel):
@@ -87,6 +99,31 @@ class TTSConfig(BaseModel):
         return ".mp3" if self.output_format.startswith("mp3") else ".pcm"
 
 
+class YouTubeConfig(BaseModel):
+    """Upload pela YouTube Data API v3 (o formato vertical + #Shorts define o Shorts)."""
+
+    # 22 = People & Blogs; 26 = Howto & Style
+    category_id: str = "22"
+    privacy_status: str = "public"
+    made_for_kids: bool = False
+    # marcacao obrigatoria para o video entrar no feed de Shorts
+    shorts_tag: str = "#Shorts"
+    upload_chunk_size: int = 5 * 1024 * 1024
+
+
+class TikTokConfig(BaseModel):
+    """Content Posting API: init -> upload do arquivo -> consulta do status."""
+
+    base_url: str = "https://open.tiktokapis.com"
+    privacy_level: str = "SELF_ONLY"
+    disable_comment: bool = False
+    disable_duet: bool = False
+    disable_stitch: bool = False
+    chunk_size: int = 10 * 1024 * 1024
+    status_poll_attempts: int = 10
+    status_poll_seconds: float = 3.0
+
+
 class PublishingConfig(BaseModel):
     """Controle de ritmo de publicacao: nunca postar tudo de uma vez."""
 
@@ -102,9 +139,27 @@ class PublishingConfig(BaseModel):
     max_per_run: int = 1
     # true exige aprovacao manual (botao do dashboard) antes de qualquer publicacao
     require_approval: bool = False
+    # destinos ativos: dry-run | youtube | tiktok
+    platforms: list[str] = Field(default_factory=lambda: ["dry-run"])
+    hashtags_by_niche: dict[str, list[str]] = Field(default_factory=dict)
+    default_hashtags: list[str] = Field(default_factory=list)
+    max_hashtags: int = 8
+    # parametro de rastreio do programa de afiliados do Mercado Livre
+    affiliate_param: str = "matt_word"
+    youtube: YouTubeConfig = Field(default_factory=YouTubeConfig)
+    tiktok: TikTokConfig = Field(default_factory=TikTokConfig)
 
     def interval_for(self, niche: str) -> float:
         return self.interval_hours_by_niche.get(niche, self.min_interval_hours)
+
+    def hashtags_for(self, niche: str) -> list[str]:
+        """Hashtags do nicho + as globais, sem repetir e respeitando `max_hashtags`."""
+        tags: list[str] = []
+        for tag in [*self.hashtags_by_niche.get(niche, []), *self.default_hashtags]:
+            normalized = tag if tag.startswith("#") else f"#{tag}"
+            if normalized.lower() not in {existing.lower() for existing in tags}:
+                tags.append(normalized)
+        return tags[: self.max_hashtags]
 
 
 class VideoConfig(BaseModel):

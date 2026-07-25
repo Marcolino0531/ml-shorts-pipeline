@@ -184,6 +184,9 @@ def render_queue(data: DashboardData) -> None:
                 "Publicado em": item.published_at.isoformat(timespec="minutes")
                 if item.published_at
                 else "-",
+                "Posts": " | ".join(
+                    f"{platform}: {url}" for platform, url in item.published_urls.items()
+                ),
                 "Erro": item.error or "",
             }
             for item in items
