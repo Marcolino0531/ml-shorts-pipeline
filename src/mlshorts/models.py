@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from enum import Enum
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
 
 class Review(BaseModel):
@@ -51,16 +52,43 @@ class Product(BaseModel):
         return str(self.permalink)
 
 
+class SceneRole(str, Enum):
+    """Blocos obrigatorios do formato Viral Hook."""
+
+    GANCHO = "gancho"
+    APRESENTACAO = "apresentacao"
+    PROVA_SOCIAL = "prova_social"
+    CTA = "cta"
+
+
+class Scene(BaseModel):
+    """Cena do roteiro, no formato devolvido pelo LLM."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    role: SceneRole = Field(alias="bloco")
+    narration: str = Field(alias="fala_narrador", min_length=1)
+    visual: str = Field(alias="instrucao_visual", min_length=1)
+
+    @property
+    def word_count(self) -> int:
+        return len(self.narration.split())
+
+
 class VideoScript(BaseModel):
     product_id: str
-    hook: str
-    body: list[str]
-    call_to_action: str
+    scenes: list[Scene]
     estimated_duration_seconds: float
+    provider: str | None = None
+    model: str | None = None
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def narration(self) -> str:
-        return " ".join([self.hook, *self.body, self.call_to_action])
+        return " ".join(scene.narration for scene in self.scenes)
+
+    def scene_for(self, role: SceneRole) -> Scene | None:
+        return next((scene for scene in self.scenes if scene.role is role), None)
 
 
 class VideoMetadata(BaseModel):

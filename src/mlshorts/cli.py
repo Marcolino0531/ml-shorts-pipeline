@@ -13,6 +13,7 @@ from rich.table import Table
 from mlshorts.collectors.service import CollectionService
 from mlshorts.config import load_settings
 from mlshorts.logging_setup import setup_logging
+from mlshorts.scriptgen import ScriptGenerationService
 
 app = typer.Typer(help="Pipeline de videos curtos de produtos em alta do Mercado Livre.")
 console = Console()
@@ -26,6 +27,10 @@ CategoryOption = Annotated[
 ]
 SkipImagesOption = Annotated[bool, typer.Option("--skip-images", help="Nao baixar as imagens.")]
 VerboseOption = Annotated[bool, typer.Option("--verbose", "-v")]
+ProductsFileOption = Annotated[
+    Path | None,
+    typer.Option("--products-file", help="JSON de produtos; padrao e o mais recente em data/raw."),
+]
 
 
 @app.command()
@@ -61,6 +66,25 @@ def collect(
             f"R$ {product.price:,.2f}",
         )
     console.print(table)
+
+
+@app.command()
+def script(
+    config: ConfigOption = None,
+    products_file: ProductsFileOption = None,
+    verbose: VerboseOption = False,
+) -> None:
+    """Gera os roteiros Viral Hook a partir do ultimo JSON de produtos coletados."""
+    setup_logging(logging.DEBUG if verbose else logging.INFO)
+    settings = load_settings(config)
+    scripts = ScriptGenerationService(settings).run(products_file)
+
+    for video_script in scripts:
+        console.rule(f"{video_script.product_id} - {video_script.estimated_duration_seconds}s")
+        for scene in video_script.scenes:
+            console.print(f"[bold]{scene.role.value}[/bold]: {scene.narration}")
+            console.print(f"  [dim]visual:[/dim] {scene.visual}")
+    console.print(f"\n{len(scripts)} roteiros gerados.")
 
 
 @app.command()

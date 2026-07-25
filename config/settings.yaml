@@ -25,6 +25,16 @@ filters:
   # descarta produtos sem imagem em resolucao suficiente para 1080x1920
   min_image_width: 800
 
+scriptgen:
+  # openai | anthropic (vazio usa SCRIPT_PROVIDER do .env)
+  provider: openai
+  model_openai: gpt-4o-mini
+  model_anthropic: claude-3-5-sonnet-latest
+  temperature: 0.8
+  # ritmo medio de narracao em pt-BR, usado para estimar a duracao do roteiro
+  words_per_second: 2.6
+  retry_when_too_long: true
+
 video:
   width: 1080
   height: 1920

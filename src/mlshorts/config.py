@@ -57,6 +57,16 @@ class FilterConfig(BaseModel):
     min_image_width: int = 800
 
 
+class ScriptGenConfig(BaseModel):
+    provider: str | None = None  # openai | anthropic; None usa SCRIPT_PROVIDER do .env
+    model_openai: str = "gpt-4o-mini"
+    model_anthropic: str = "claude-3-5-sonnet-latest"
+    temperature: float = 0.8
+    # ritmo medio de narracao em pt-BR usado para estimar a duracao
+    words_per_second: float = 2.6
+    retry_when_too_long: bool = True
+
+
 class VideoConfig(BaseModel):
     width: int = 1080
     height: int = 1920
@@ -68,6 +78,7 @@ class Settings(BaseModel):
     categories: list[CategoryConfig] = Field(default_factory=list)
     collector: CollectorConfig = Field(default_factory=CollectorConfig)
     filters: FilterConfig = Field(default_factory=FilterConfig)
+    scriptgen: ScriptGenConfig = Field(default_factory=ScriptGenConfig)
     video: VideoConfig = Field(default_factory=VideoConfig)
 
 
