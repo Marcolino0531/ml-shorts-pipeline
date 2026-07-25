@@ -8,7 +8,7 @@ Pipeline em Python para automatizar vídeos curtos (TikTok/Shorts) de produtos e
 |---|-------|--------|--------|
 | 1 | Coleta de produtos em alta (API oficial + fallback Playwright) | `mlshorts.collectors` | implementado |
 | 2 | Filtro (nota ≥ 4.5, volume de vendas) + download das imagens | `mlshorts.collectors.filters` / `.images` | implementado |
-| 3 | Roteiro de até 45s via OpenAI/Claude | `mlshorts.scriptgen` | próxima fase |
+| 3 | Roteiro de até 45s via OpenAI/Claude | `mlshorts.scriptgen` | implementado |
 | 4 | Narração via ElevenLabs | `mlshorts.tts` | próxima fase |
 | 5 | Montagem 1080x1920 com FFmpeg e legendas dinâmicas | `mlshorts.video` | próxima fase |
 | 6 | Metadados (título, descrição, hashtags, link de afiliado) | `mlshorts.publish` | próxima fase |
@@ -27,7 +27,12 @@ src/mlshorts/
     filters.py            regras de aprovação e ranking
     images.py             download das imagens em alta resolução
     service.py            orquestra coleta -> filtro -> imagens -> JSON em data/raw
-  scriptgen/ tts/ video/ publish/   etapas seguintes (contratos definidos nos docstrings)
+  scriptgen/
+    prompts.py            system prompt Viral Hook + serializacao dos dados do produto
+    schema.py             JSON schema das cenas (JSON mode e tool calling)
+    providers.py          OpenAIScriptProvider (json_schema strict), AnthropicScriptProvider (tool_use)
+    generator.py          ScriptGenerator (validacao/duracao) + ScriptGenerationService
+  tts/ video/ publish/    etapas seguintes (contratos definidos nos docstrings)
   storage/paths.py        convenção de diretórios em data/
 data/{raw,images,audio,video,out}   artefatos por etapa (versionados apenas os .gitkeep)
 tests/                    testes unitários (HTTP mockado com respx)
@@ -53,10 +58,32 @@ mlshorts categories                        # lista as categorias configuradas
 mlshorts collect                           # coleta todas as categorias do settings.yaml
 mlshorts collect --category MLB1051 -v     # apenas uma categoria, com log detalhado
 mlshorts collect --skip-images             # sem baixar imagens
+mlshorts script                            # roteiros a partir do ultimo data/raw/products-*.json
+mlshorts script --products-file data/raw/products-20260101T000000Z.json
 ```
 
 Saída: `data/raw/products-<timestamp>.json` com os produtos aprovados (título, preço, nota,
 vendas, ficha técnica, comentários positivos) e as imagens em `data/images/<product_id>/`.
+
+## Geração de roteiro (`scriptgen`)
+
+O system prompt obriga o formato **Viral Hook** com exatamente quatro cenas — `gancho`,
+`apresentacao`, `prova_social` e `cta` — e proíbe inventar dados: o prompt do usuário carrega
+somente título, preço, marca, nota, avaliações, unidades vendidas, ficha técnica e comentários
+positivos reais vindos de `data/raw/products-*.json`.
+
+A resposta é sempre estruturada:
+
+```json
+{"cenas": [{"bloco": "gancho", "fala_narrador": "...", "instrucao_visual": "..."}]}
+```
+
+- **OpenAI**: `response_format={"type": "json_schema", ..., "strict": true}`.
+- **Anthropic**: tool calling com `tool_choice` forçado na ferramenta `gerar_roteiro`.
+
+O `ScriptGenerator` valida a presença dos quatro blocos, reordena as cenas, estima a duração
+(`palavras / words_per_second`, default 2.6 para pt-BR) e, se passar de 45s, pede uma reescrita
+mais curta antes de desistir. A saída vai para `data/out/scripts-<timestamp>.json`.
 
 ## Estratégia de coleta
 
