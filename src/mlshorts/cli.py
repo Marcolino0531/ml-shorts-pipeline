@@ -21,6 +21,7 @@ from mlshorts.models import PublicationStatus
 from mlshorts.publish import PublicationScheduler
 from mlshorts.scriptgen import ScriptGenerationService
 from mlshorts.tts import NarrationService
+from mlshorts.video import RenderService
 
 app = typer.Typer(help="Pipeline de videos curtos de produtos em alta do Mercado Livre.")
 console = Console()
@@ -43,7 +44,7 @@ ScriptsFileOption = Annotated[
     typer.Option("--scripts-file", help="JSON de roteiros; padrao e o mais recente em data/out."),
 ]
 ProductIdOption = Annotated[
-    str | None, typer.Option("--product-id", help="Narra apenas este produto.")
+    str | None, typer.Option("--product-id", help="Processa apenas este produto.")
 ]
 
 
@@ -200,6 +201,26 @@ def queue_list(
             item.scheduled_for.isoformat(timespec="minutes"),
         )
     console.print(table)
+
+
+@app.command()
+def render(
+    config: ConfigOption = None,
+    product_id: ProductIdOption = None,
+    verbose: VerboseOption = False,
+) -> None:
+    """Monta o video vertical 1080x1920 com FFmpeg a partir do narration.json de cada produto."""
+    setup_logging(logging.DEBUG if verbose else logging.INFO)
+    settings = load_settings(config)
+    videos = RenderService(settings).run(product_id=product_id)
+
+    table = Table(title=f"Videos {settings.video.width}x{settings.video.height}")
+    table.add_column("Arquivo")
+    table.add_column("MB", justify="right")
+    for path in videos:
+        table.add_row(str(path), f"{path.stat().st_size / 1_048_576:.1f}")
+    console.print(table)
+    console.print(f"{len(videos)} videos renderizados.")
 
 
 @app.command()

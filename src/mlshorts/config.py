@@ -108,10 +108,27 @@ class PublishingConfig(BaseModel):
 
 
 class VideoConfig(BaseModel):
+    """Formato de saida e estilo das legendas dinamicas."""
+
     width: int = 1080
     height: int = 1920
     fps: int = 30
     max_duration_seconds: int = 45
+    # fundo atras da imagem do produto (as imagens do ML sao quadradas)
+    background_color: str = "black"
+    # leve zoom por cena para o video nao ficar estatico
+    zoom_per_scene: float = 0.08
+    crf: int = 20
+    preset: str = "medium"
+    audio_bitrate: str = "192k"
+    # legendas: fonte, tamanho e quantas palavras aparecem por vez
+    font_name: str = "DejaVu Sans"
+    font_size: int = 64
+    font_color: str = "&H00FFFFFF"
+    outline_color: str = "&H00000000"
+    outline: int = 4
+    caption_words_per_chunk: int = 3
+    caption_margin_bottom: int = 420
 
 
 class Settings(BaseModel):
