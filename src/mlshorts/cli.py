@@ -13,6 +13,8 @@ from rich.table import Table
 from mlshorts.collectors.service import CollectionService
 from mlshorts.config import load_settings
 from mlshorts.logging_setup import setup_logging
+from mlshorts.models import PublicationStatus
+from mlshorts.publish import PublicationScheduler
 from mlshorts.scriptgen import ScriptGenerationService
 
 app = typer.Typer(help="Pipeline de videos curtos de produtos em alta do Mercado Livre.")
@@ -85,6 +87,76 @@ def script(
             console.print(f"[bold]{scene.role.value}[/bold]: {scene.narration}")
             console.print(f"  [dim]visual:[/dim] {scene.visual}")
     console.print(f"\n{len(scripts)} roteiros gerados.")
+
+
+@app.command("queue-add")
+def queue_add(
+    product_id: Annotated[str, typer.Option("--product-id", help="ID do produto no ML.")],
+    niche: Annotated[str, typer.Option("--niche", help="Nicho/categoria da conta.")],
+    media: Annotated[Path, typer.Option("--media", help="Caminho do MP4 vertical.")],
+    config: ConfigOption = None,
+    verbose: VerboseOption = False,
+) -> None:
+    """Envia um video para publicacao: publica agora ou agenda se o nicho estiver bloqueado."""
+    setup_logging(logging.DEBUG if verbose else logging.INFO)
+    settings = load_settings(config)
+    scheduler = PublicationScheduler.from_settings(settings)
+    item = scheduler.submit(product_id=product_id, niche=niche, media_path=str(media))
+
+    if item.status is PublicationStatus.PUBLISHED:
+        console.print(f"[green]Publicado agora[/green]: {item.id}")
+    else:
+        console.print(
+            f"[yellow]Agendado[/yellow]: {item.id} para {item.scheduled_for.isoformat()} "
+            f"(intervalo de {settings.publishing.interval_for(niche)}h no nicho {niche})"
+        )
+
+
+@app.command("publish-queue")
+def publish_queue(
+    config: ConfigOption = None,
+    limit: Annotated[
+        int | None, typer.Option("--limit", help="Maximo de videos nesta rodada.")
+    ] = None,
+    verbose: VerboseOption = False,
+) -> None:
+    """Comando periodico (cron): publica os videos da fila que ja podem ir ao ar."""
+    setup_logging(logging.DEBUG if verbose else logging.INFO)
+    settings = load_settings(config)
+    scheduler = PublicationScheduler.from_settings(settings)
+    published = scheduler.process_due(limit=limit)
+
+    for item in published:
+        console.print(f"[green]Publicado[/green] {item.product_id} ({item.niche}) - {item.id}")
+    console.print(f"{len(published)} publicados; {len(scheduler.store.pending())} ainda na fila.")
+
+
+@app.command("queue-list")
+def queue_list(
+    config: ConfigOption = None,
+    status: Annotated[
+        PublicationStatus | None, typer.Option("--status", help="Filtra por status.")
+    ] = None,
+) -> None:
+    """Mostra a fila de publicacao."""
+    settings = load_settings(config)
+    scheduler = PublicationScheduler.from_settings(settings)
+
+    table = Table(title="Fila de publicacao")
+    table.add_column("ID")
+    table.add_column("Produto")
+    table.add_column("Nicho")
+    table.add_column("Status")
+    table.add_column("Agendado para")
+    for item in scheduler.store.list_all(status):
+        table.add_row(
+            item.id[:8],
+            item.product_id,
+            item.niche,
+            item.status.value,
+            item.scheduled_for.isoformat(timespec="minutes"),
+        )
+    console.print(table)
 
 
 @app.command()

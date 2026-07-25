@@ -1,7 +1,23 @@
-"""Etapa 5 (proxima fase): metadados de publicacao (titulo, descricao, hashtags, afiliado).
+"""Etapa 5: publicacao com controle de ritmo (intervalo minimo por nicho) e fila agendada.
 
-Contrato previsto:
+Os metadados (titulo, descricao, hashtags, link de afiliado) entram na proxima fase:
     build_metadata(product: Product, script: VideoScript, media_path: Path) -> VideoMetadata
 """
 
-__all__: list[str] = []
+from mlshorts.publish.scheduler import DryRunPublisher, PublicationScheduler, Publisher
+from mlshorts.publish.store import (
+    JsonPublicationStore,
+    PublicationStore,
+    SqlitePublicationStore,
+    build_store,
+)
+
+__all__ = [
+    "DryRunPublisher",
+    "JsonPublicationStore",
+    "PublicationScheduler",
+    "PublicationStore",
+    "Publisher",
+    "SqlitePublicationStore",
+    "build_store",
+]

@@ -11,7 +11,8 @@ Pipeline em Python para automatizar vídeos curtos (TikTok/Shorts) de produtos e
 | 3 | Roteiro de até 45s via OpenAI/Claude | `mlshorts.scriptgen` | implementado |
 | 4 | Narração via ElevenLabs | `mlshorts.tts` | próxima fase |
 | 5 | Montagem 1080x1920 com FFmpeg e legendas dinâmicas | `mlshorts.video` | próxima fase |
-| 6 | Metadados (título, descrição, hashtags, link de afiliado) | `mlshorts.publish` | próxima fase |
+| 6 | Publicação com intervalo mínimo por nicho e fila agendada | `mlshorts.publish` | implementado |
+| 7 | Metadados (título, descrição, hashtags, link de afiliado) | `mlshorts.publish` | próxima fase |
 
 ## Estrutura
 
@@ -32,7 +33,10 @@ src/mlshorts/
     schema.py             JSON schema das cenas (JSON mode e tool calling)
     providers.py          OpenAIScriptProvider (json_schema strict), AnthropicScriptProvider (tool_use)
     generator.py          ScriptGenerator (validacao/duracao) + ScriptGenerationService
-  tts/ video/ publish/    etapas seguintes (contratos definidos nos docstrings)
+  publish/
+    store.py              fila + historico (JsonPublicationStore | SqlitePublicationStore)
+    scheduler.py          PublicationScheduler: intervalo por nicho, enfileiramento e process_due
+  tts/ video/             etapas seguintes (contratos definidos nos docstrings)
   storage/paths.py        convenção de diretórios em data/
 data/{raw,images,audio,video,out}   artefatos por etapa (versionados apenas os .gitkeep)
 tests/                    testes unitários (HTTP mockado com respx)
@@ -60,6 +64,16 @@ mlshorts collect --category MLB1051 -v     # apenas uma categoria, com log detal
 mlshorts collect --skip-images             # sem baixar imagens
 mlshorts script                            # roteiros a partir do ultimo data/raw/products-*.json
 mlshorts script --products-file data/raw/products-20260101T000000Z.json
+
+mlshorts queue-add --product-id MLB123 --niche Celulares --media data/video/MLB123.mp4
+mlshorts publish-queue          # rode periodicamente (cron): publica o que ja pode ir ao ar
+mlshorts queue-list --status pending
+```
+
+Cron sugerido (de hora em hora):
+
+```cron
+0 * * * * cd /caminho/do/projeto && .venv/bin/mlshorts publish-queue >> data/out/publish.log 2>&1
 ```
 
 Saída: `data/raw/products-<timestamp>.json` com os produtos aprovados (título, preço, nota,
@@ -84,6 +98,30 @@ A resposta é sempre estruturada:
 O `ScriptGenerator` valida a presença dos quatro blocos, reordena as cenas, estima a duração
 (`palavras / words_per_second`, default 2.6 para pt-BR) e, se passar de 45s, pede uma reescrita
 mais curta antes de desistir. A saída vai para `data/out/scripts-<timestamp>.json`.
+
+## Agendamento de publicação (`publish`)
+
+Nada e publicado em lote: cada nicho respeita um intervalo mínimo entre postagens.
+
+```yaml
+publishing:
+  min_interval_hours: 24
+  interval_hours_by_niche:
+    Informatica: 12
+  backend: sqlite          # ou json
+  queue_path: data/out/publications.sqlite3
+  max_per_run: 1
+```
+
+- `queue-add` chama `PublicationScheduler.submit()`: se o nicho estiver livre, publica na hora;
+  senão grava o vídeo como `pending` com `scheduled_for = ultima_publicacao + intervalo`.
+  Vários pendentes do mesmo nicho são espaçados (24h, 48h, ...), nunca no mesmo horário.
+- `publish-queue` (o comando do cron) chama `process_due()`: pega os vencidos, revalida o
+  intervalo contra a última publicação do nicho, publica no máximo `max_per_run` por rodada e
+  reagenda os demais.
+- Falha na publicação marca o item como `failed` e **não** consome a janela do nicho.
+- O destino final ainda é o `DryRunPublisher` (só loga); a integração com as redes entra junto
+  com os metadados, implementando o protocolo `Publisher`.
 
 ## Estratégia de coleta
 
