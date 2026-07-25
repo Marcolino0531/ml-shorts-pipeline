@@ -61,6 +61,41 @@ publishing:
   max_per_run: 1
   # true exige clicar em "Aprovar" no dashboard antes de qualquer publicacao
   require_approval: false
+  # destinos ativos: dry-run | youtube | tiktok (podem ser combinados)
+  platforms:
+    - dry-run
+  # parametro de rastreio do link de afiliado do Mercado Livre
+  affiliate_param: matt_word
+  max_hashtags: 8
+  default_hashtags:
+    - achadinhos
+    - mercadolivre
+    - ofertas
+  hashtags_by_niche:
+    Celulares:
+      - celular
+      - tecnologia
+    Informatica:
+      - setup
+      - notebook
+    Eletrodomesticos:
+      - casa
+      - cozinha
+  youtube:
+    # 22 = People & Blogs, 26 = Howto & Style
+    category_id: "22"
+    privacy_status: public
+    made_for_kids: false
+    # marcacao que joga o video no feed de Shorts
+    shorts_tag: "#Shorts"
+  tiktok:
+    # SELF_ONLY enquanto o app estiver em modo sandbox na TikTok
+    privacy_level: SELF_ONLY
+    disable_comment: false
+    disable_duet: false
+    disable_stitch: false
+    status_poll_attempts: 10
+    status_poll_seconds: 3
 
 video:
   # vertical obrigatorio para Shorts/TikTok/Reels

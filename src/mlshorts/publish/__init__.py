@@ -1,9 +1,8 @@
-"""Etapa 5: publicacao com controle de ritmo (intervalo minimo por nicho) e fila agendada.
+"""Etapa 5: metadados, publicacao nas redes e controle de ritmo (fila + intervalo por nicho)."""
 
-Os metadados (titulo, descricao, hashtags, link de afiliado) entram na proxima fase:
-    build_metadata(product: Product, script: VideoScript, media_path: Path) -> VideoMetadata
-"""
-
+from mlshorts.publish.errors import PublishError
+from mlshorts.publish.metadata import MetadataBuilder, MetadataService
+from mlshorts.publish.publishers import MultiPublisher, build_publisher
 from mlshorts.publish.scheduler import DryRunPublisher, PublicationScheduler, Publisher
 from mlshorts.publish.store import (
     JsonPublicationStore,
@@ -11,13 +10,22 @@ from mlshorts.publish.store import (
     SqlitePublicationStore,
     build_store,
 )
+from mlshorts.publish.tiktok import TikTokPublisher
+from mlshorts.publish.youtube import YouTubePublisher
 
 __all__ = [
     "DryRunPublisher",
     "JsonPublicationStore",
+    "MetadataBuilder",
+    "MetadataService",
+    "MultiPublisher",
     "PublicationScheduler",
     "PublicationStore",
+    "PublishError",
     "Publisher",
     "SqlitePublicationStore",
+    "TikTokPublisher",
+    "YouTubePublisher",
+    "build_publisher",
     "build_store",
 ]

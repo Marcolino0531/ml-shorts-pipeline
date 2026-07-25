@@ -18,7 +18,7 @@ from mlshorts.config import load_settings
 from mlshorts.dashboard.data import CONFIG_ENV_VAR
 from mlshorts.logging_setup import setup_logging
 from mlshorts.models import PublicationStatus
-from mlshorts.publish import PublicationScheduler
+from mlshorts.publish import MetadataService, PublicationScheduler, build_publisher
 from mlshorts.scriptgen import ScriptGenerationService
 from mlshorts.tts import NarrationService
 from mlshorts.video import RenderService
@@ -45,6 +45,9 @@ ScriptsFileOption = Annotated[
 ]
 ProductIdOption = Annotated[
     str | None, typer.Option("--product-id", help="Processa apenas este produto.")
+]
+DryRunOption = Annotated[
+    bool, typer.Option("--dry-run", help="Nao posta nas redes: apenas registra no log.")
 ]
 
 
@@ -139,13 +142,23 @@ def queue_add(
     niche: Annotated[str, typer.Option("--niche", help="Nicho/categoria da conta.")],
     media: Annotated[Path, typer.Option("--media", help="Caminho do MP4 vertical.")],
     config: ConfigOption = None,
+    dry_run: DryRunOption = False,
     verbose: VerboseOption = False,
 ) -> None:
     """Envia um video para publicacao: publica agora ou agenda se o nicho estiver bloqueado."""
     setup_logging(logging.DEBUG if verbose else logging.INFO)
     settings = load_settings(config)
-    scheduler = PublicationScheduler.from_settings(settings)
-    item = scheduler.submit(product_id=product_id, niche=niche, media_path=str(media))
+    publisher = build_publisher(settings.publishing, dry_run=dry_run)
+    scheduler = PublicationScheduler.from_settings(settings, publisher=publisher)
+    metadata = MetadataService(settings.publishing).build_for(product_id, niche, media_path=media)
+    item = scheduler.submit(
+        product_id=product_id, niche=niche, media_path=str(media), metadata=metadata
+    )
+
+    if metadata is None:
+        console.print("[yellow]Sem metadados[/yellow]: produto ausente no ultimo products-*.json")
+    else:
+        console.print(f"[dim]{metadata.title}[/dim]\n[dim]{metadata.affiliate_link}[/dim]")
 
     if item.status is PublicationStatus.PUBLISHED:
         console.print(f"[green]Publicado agora[/green]: {item.id}")
@@ -156,23 +169,54 @@ def queue_add(
         )
 
 
+@app.command()
+def publish(
+    config: ConfigOption = None,
+    process_queue: Annotated[
+        bool,
+        typer.Option("--process-queue", help="Publica os itens da fila que ja podem ir ao ar."),
+    ] = False,
+    limit: Annotated[
+        int | None, typer.Option("--limit", help="Maximo de videos nesta rodada.")
+    ] = None,
+    dry_run: DryRunOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    """Publica nas redes configuradas (YouTube/TikTok) os videos liberados da fila."""
+    if not process_queue:
+        raise typer.BadParameter("use `mlshorts publish --process-queue`")
+
+    setup_logging(logging.DEBUG if verbose else logging.INFO)
+    settings = load_settings(config)
+    publisher = build_publisher(settings.publishing, dry_run=dry_run)
+    scheduler = PublicationScheduler.from_settings(settings, publisher=publisher)
+    console.print(f"Destinos: [bold]{publisher.name}[/bold]")
+    published = scheduler.process_due(limit=limit)
+
+    for item in published:
+        urls = ", ".join(item.published_urls.values()) or "-"
+        color = "red" if item.status is not PublicationStatus.PUBLISHED else "green"
+        console.print(f"[{color}]{item.status.value}[/{color}] {item.product_id} -> {urls}")
+        if item.error:
+            console.print(f"  [yellow]{item.error}[/yellow]")
+
+    waiting = scheduler.awaiting_approval()
+    console.print(f"{len(published)} processados; {len(scheduler.store.pending())} na fila.")
+    if waiting:
+        console.print(f"[yellow]{len(waiting)} aguardando aprovacao no dashboard[/yellow]")
+
+
 @app.command("publish-queue")
 def publish_queue(
     config: ConfigOption = None,
     limit: Annotated[
         int | None, typer.Option("--limit", help="Maximo de videos nesta rodada.")
     ] = None,
+    dry_run: DryRunOption = False,
     verbose: VerboseOption = False,
 ) -> None:
-    """Comando periodico (cron): publica os videos da fila que ja podem ir ao ar."""
-    setup_logging(logging.DEBUG if verbose else logging.INFO)
-    settings = load_settings(config)
-    scheduler = PublicationScheduler.from_settings(settings)
-    published = scheduler.process_due(limit=limit)
-
-    for item in published:
-        console.print(f"[green]Publicado[/green] {item.product_id} ({item.niche}) - {item.id}")
-    console.print(f"{len(published)} publicados; {len(scheduler.store.pending())} ainda na fila.")
+    """Alias de `publish --process-queue` (usado no crontab)."""
+    publish(config=config, process_queue=True, limit=limit, dry_run=dry_run, verbose=verbose)
 
 
 @app.command("queue-list")
@@ -192,6 +236,8 @@ def queue_list(
     table.add_column("Nicho")
     table.add_column("Status")
     table.add_column("Agendado para")
+    table.add_column("Aprovado")
+    table.add_column("Posts")
     for item in scheduler.store.list_all(status):
         table.add_row(
             item.id[:8],
@@ -199,6 +245,8 @@ def queue_list(
             item.niche,
             item.status.value,
             item.scheduled_for.isoformat(timespec="minutes"),
+            "sim" if item.approved_at else "-",
+            ", ".join(item.published_urls) or "-",
         )
     console.print(table)
 

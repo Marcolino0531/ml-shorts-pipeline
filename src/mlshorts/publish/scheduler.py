@@ -19,7 +19,9 @@ class Publisher(Protocol):
 
     name: str
 
-    def publish(self, item: QueuedPublication) -> None: ...
+    def publish(self, item: QueuedPublication) -> str | None:
+        """Retorna a URL do post quando a rede devolve uma."""
+        ...
 
 
 class DryRunPublisher:
@@ -29,7 +31,11 @@ class DryRunPublisher:
 
     def publish(self, item: QueuedPublication) -> None:
         logger.info(
-            "[dry-run] publicando %s (%s): %s", item.product_id, item.niche, item.media_path
+            "[dry-run] publicando %s (%s): %s | %s",
+            item.product_id,
+            item.niche,
+            item.media_path,
+            item.metadata.title if item.metadata else "sem metadados",
         )
 
 
