@@ -35,6 +35,18 @@ scriptgen:
   words_per_second: 2.6
   retry_when_too_long: true
 
+publishing:
+  # intervalo minimo entre duas publicacoes do mesmo nicho
+  min_interval_hours: 24
+  # sobrescreve o intervalo por nicho (chave = nome da categoria)
+  interval_hours_by_niche:
+    Informatica: 12
+  # json | sqlite
+  backend: sqlite
+  queue_path: data/out/publications.sqlite3
+  # quantos videos no maximo sao publicados a cada execucao de `mlshorts publish-queue`
+  max_per_run: 1
+
 video:
   width: 1080
   height: 1920

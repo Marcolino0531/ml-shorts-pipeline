@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
@@ -98,3 +99,28 @@ class VideoMetadata(BaseModel):
     hashtags: list[str]
     affiliate_link: str
     media_path: str | None = None
+
+
+class PublicationStatus(str, Enum):
+    PENDING = "pending"
+    PUBLISHED = "published"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class QueuedPublication(BaseModel):
+    """Video aguardando (ou ja liberado para) publicacao em um nicho."""
+
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    product_id: str
+    niche: str
+    media_path: str
+    metadata: VideoMetadata | None = None
+    status: PublicationStatus = PublicationStatus.PENDING
+    scheduled_for: datetime
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    published_at: datetime | None = None
+    error: str | None = None
+
+    def is_due(self, now: datetime) -> bool:
+        return self.status is PublicationStatus.PENDING and self.scheduled_for <= now
