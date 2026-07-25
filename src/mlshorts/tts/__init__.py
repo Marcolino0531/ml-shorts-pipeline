@@ -1,7 +1,23 @@
-"""Etapa 3 (proxima fase): narracao via ElevenLabs.
+"""Etapa 3: narracao das cenas via ElevenLabs, com duracao exata por arquivo."""
 
-Contrato previsto:
-    synthesize(script: VideoScript, output_dir: Path) -> Path  # arquivo .mp3
-"""
+from mlshorts.tts.duration import DurationProbe, FFprobeDurationProbe
+from mlshorts.tts.provider import (
+    ELEVENLABS_BASE_URL,
+    ElevenLabsTTSProvider,
+    TTSError,
+    TTSProvider,
+    build_provider,
+)
+from mlshorts.tts.service import NarrationGenerator, NarrationService
 
-__all__: list[str] = []
+__all__ = [
+    "ELEVENLABS_BASE_URL",
+    "DurationProbe",
+    "ElevenLabsTTSProvider",
+    "FFprobeDurationProbe",
+    "NarrationGenerator",
+    "NarrationService",
+    "TTSError",
+    "TTSProvider",
+    "build_provider",
+]

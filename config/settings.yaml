@@ -35,6 +35,19 @@ scriptgen:
   words_per_second: 2.6
   retry_when_too_long: true
 
+tts:
+  # vazio usa ELEVENLABS_VOICE_ID do .env
+  voice_id:
+  model_id: eleven_multilingual_v2
+  # 0.0 = mais expressivo e instavel, 1.0 = monotono e previsivel
+  stability: 0.45
+  similarity_boost: 0.8
+  style: 0.0
+  use_speaker_boost: true
+  output_format: mp3_44100_128
+  # silencio entre cenas, usado depois na montagem do video
+  pause_between_scenes_seconds: 0.25
+
 publishing:
   # intervalo minimo entre duas publicacoes do mesmo nicho
   min_interval_hours: 24

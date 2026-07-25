@@ -92,6 +92,42 @@ class VideoScript(BaseModel):
         return next((scene for scene in self.scenes if scene.role is role), None)
 
 
+class SceneAudio(BaseModel):
+    """Narracao de uma cena, com a duracao real do arquivo gerado."""
+
+    index: int
+    role: SceneRole
+    text: str
+    audio_path: str
+    duration_seconds: float
+    # inicio da cena na timeline final, somando as cenas anteriores e as pausas
+    start_seconds: float = 0.0
+
+    @property
+    def end_seconds(self) -> float:
+        return self.start_seconds + self.duration_seconds
+
+
+class ScriptAudio(BaseModel):
+    """Trilha de narracao completa de um roteiro, cena por cena."""
+
+    product_id: str
+    voice_id: str
+    model_id: str
+    scenes: list[SceneAudio]
+    pause_between_scenes_seconds: float = 0.0
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @property
+    def speech_duration_seconds(self) -> float:
+        return sum(scene.duration_seconds for scene in self.scenes)
+
+    @property
+    def total_duration_seconds(self) -> float:
+        pauses = max(len(self.scenes) - 1, 0) * self.pause_between_scenes_seconds
+        return self.speech_duration_seconds + pauses
+
+
 class VideoMetadata(BaseModel):
     product_id: str
     title: str

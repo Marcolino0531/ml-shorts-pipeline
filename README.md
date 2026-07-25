@@ -9,7 +9,7 @@ Pipeline em Python para automatizar vídeos curtos (TikTok/Shorts) de produtos e
 | 1 | Coleta de produtos em alta (API oficial + fallback Playwright) | `mlshorts.collectors` | implementado |
 | 2 | Filtro (nota ≥ 4.5, volume de vendas) + download das imagens | `mlshorts.collectors.filters` / `.images` | implementado |
 | 3 | Roteiro de até 45s via OpenAI/Claude | `mlshorts.scriptgen` | implementado |
-| 4 | Narração via ElevenLabs | `mlshorts.tts` | próxima fase |
+| 4 | Narração via ElevenLabs (áudio por cena + duração exata) | `mlshorts.tts` | implementado |
 | 5 | Montagem 1080x1920 com FFmpeg e legendas dinâmicas | `mlshorts.video` | próxima fase |
 | 6 | Publicação com intervalo mínimo por nicho e fila agendada | `mlshorts.publish` | implementado |
 | 7 | Metadados (título, descrição, hashtags, link de afiliado) | `mlshorts.publish` | próxima fase |
@@ -33,10 +33,14 @@ src/mlshorts/
     schema.py             JSON schema das cenas (JSON mode e tool calling)
     providers.py          OpenAIScriptProvider (json_schema strict), AnthropicScriptProvider (tool_use)
     generator.py          ScriptGenerator (validacao/duracao) + ScriptGenerationService
+  tts/
+    provider.py           ElevenLabsTTSProvider (POST /v1/text-to-speech/{voice_id})
+    duration.py           FFprobeDurationProbe: duracao real de cada audio
+    service.py            NarrationGenerator (audio por cena + offsets) + NarrationService
   publish/
     store.py              fila + historico (JsonPublicationStore | SqlitePublicationStore)
     scheduler.py          PublicationScheduler: intervalo por nicho, enfileiramento e process_due
-  tts/ video/             etapas seguintes (contratos definidos nos docstrings)
+  video/                  montagem FFmpeg (proxima fase)
   storage/paths.py        convenção de diretórios em data/
 data/{raw,images,audio,video,out}   artefatos por etapa (versionados apenas os .gitkeep)
 tests/                    testes unitários (HTTP mockado com respx)
@@ -64,6 +68,9 @@ mlshorts collect --category MLB1051 -v     # apenas uma categoria, com log detal
 mlshorts collect --skip-images             # sem baixar imagens
 mlshorts script                            # roteiros a partir do ultimo data/raw/products-*.json
 mlshorts script --products-file data/raw/products-20260101T000000Z.json
+
+mlshorts narrate                           # narra o ultimo data/out/scripts-*.json
+mlshorts narrate --product-id MLB123 -v    # apenas um produto
 
 mlshorts queue-add --product-id MLB123 --niche Celulares --media data/video/MLB123.mp4
 mlshorts publish-queue          # rode periodicamente (cron): publica o que ja pode ir ao ar
@@ -98,6 +105,33 @@ A resposta é sempre estruturada:
 O `ScriptGenerator` valida a presença dos quatro blocos, reordena as cenas, estima a duração
 (`palavras / words_per_second`, default 2.6 para pt-BR) e, se passar de 45s, pede uma reescrita
 mais curta antes de desistir. A saída vai para `data/out/scripts-<timestamp>.json`.
+
+## Narração (`tts`)
+
+```yaml
+tts:
+  voice_id:                    # vazio usa ELEVENLABS_VOICE_ID do .env
+  model_id: eleven_multilingual_v2
+  stability: 0.45              # 0.0 mais expressivo, 1.0 mais monótono
+  similarity_boost: 0.8
+  style: 0.0
+  use_speaker_boost: true
+  output_format: mp3_44100_128
+  pause_between_scenes_seconds: 0.25
+```
+
+Um arquivo **por cena** em `data/audio/<product_id>/NN-<bloco>.mp3` (`00-gancho`,
+`01-apresentacao`, `02-prova_social`, `03-cta`), com a duração medida por `ffprobe` — não
+estimada. O manifesto `data/audio/<product_id>/narration.json` (e o consolidado
+`data/out/narration-<timestamp>.json`) traz `duration_seconds` e `start_seconds` de cada cena,
+que é exatamente o que o FFmpeg precisa para trocar imagem e legenda no tempo certo:
+
+```json
+{"index": 1, "role": "apresentacao", "duration_seconds": 12.0, "start_seconds": 3.25}
+```
+
+`start_seconds` já acumula `pause_between_scenes_seconds`. Falha em um produto (quota, voz
+inválida) é registrada e o serviço segue para os demais.
 
 ## Agendamento de publicação (`publish`)
 
