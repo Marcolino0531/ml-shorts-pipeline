@@ -67,6 +67,26 @@ class ScriptGenConfig(BaseModel):
     retry_when_too_long: bool = True
 
 
+class TTSConfig(BaseModel):
+    """Parametros da narracao na ElevenLabs."""
+
+    # vazio usa ELEVENLABS_VOICE_ID do .env
+    voice_id: str | None = None
+    model_id: str = "eleven_multilingual_v2"
+    # 0.0 = mais expressivo/instavel, 1.0 = monotono e previsivel
+    stability: float = 0.45
+    similarity_boost: float = 0.8
+    style: float = 0.0
+    use_speaker_boost: bool = True
+    output_format: str = "mp3_44100_128"
+    # silencio inserido entre cenas na montagem do video
+    pause_between_scenes_seconds: float = 0.25
+
+    @property
+    def file_extension(self) -> str:
+        return ".mp3" if self.output_format.startswith("mp3") else ".pcm"
+
+
 class PublishingConfig(BaseModel):
     """Controle de ritmo de publicacao: nunca postar tudo de uma vez."""
 
@@ -97,6 +117,7 @@ class Settings(BaseModel):
     collector: CollectorConfig = Field(default_factory=CollectorConfig)
     filters: FilterConfig = Field(default_factory=FilterConfig)
     scriptgen: ScriptGenConfig = Field(default_factory=ScriptGenConfig)
+    tts: TTSConfig = Field(default_factory=TTSConfig)
     video: VideoConfig = Field(default_factory=VideoConfig)
     publishing: PublishingConfig = Field(default_factory=PublishingConfig)
 

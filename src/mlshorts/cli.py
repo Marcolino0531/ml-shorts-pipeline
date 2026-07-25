@@ -16,6 +16,7 @@ from mlshorts.logging_setup import setup_logging
 from mlshorts.models import PublicationStatus
 from mlshorts.publish import PublicationScheduler
 from mlshorts.scriptgen import ScriptGenerationService
+from mlshorts.tts import NarrationService
 
 app = typer.Typer(help="Pipeline de videos curtos de produtos em alta do Mercado Livre.")
 console = Console()
@@ -32,6 +33,13 @@ VerboseOption = Annotated[bool, typer.Option("--verbose", "-v")]
 ProductsFileOption = Annotated[
     Path | None,
     typer.Option("--products-file", help="JSON de produtos; padrao e o mais recente em data/raw."),
+]
+ScriptsFileOption = Annotated[
+    Path | None,
+    typer.Option("--scripts-file", help="JSON de roteiros; padrao e o mais recente em data/out."),
+]
+ProductIdOption = Annotated[
+    str | None, typer.Option("--product-id", help="Narra apenas este produto.")
 ]
 
 
@@ -87,6 +95,37 @@ def script(
             console.print(f"[bold]{scene.role.value}[/bold]: {scene.narration}")
             console.print(f"  [dim]visual:[/dim] {scene.visual}")
     console.print(f"\n{len(scripts)} roteiros gerados.")
+
+
+@app.command()
+def narrate(
+    config: ConfigOption = None,
+    scripts_file: ScriptsFileOption = None,
+    product_id: ProductIdOption = None,
+    verbose: VerboseOption = False,
+) -> None:
+    """Gera a narracao (ElevenLabs) de cada cena e salva os audios em data/audio/."""
+    setup_logging(logging.DEBUG if verbose else logging.INFO)
+    settings = load_settings(config)
+    tracks = NarrationService(settings).run(scripts_file, product_id=product_id)
+
+    for track in tracks:
+        table = Table(title=f"{track.product_id} - {track.total_duration_seconds:.1f}s")
+        table.add_column("#")
+        table.add_column("Bloco")
+        table.add_column("Inicio", justify="right")
+        table.add_column("Duracao", justify="right")
+        table.add_column("Arquivo")
+        for scene in track.scenes:
+            table.add_row(
+                str(scene.index),
+                scene.role.value,
+                f"{scene.start_seconds:.2f}s",
+                f"{scene.duration_seconds:.2f}s",
+                Path(scene.audio_path).name,
+            )
+        console.print(table)
+    console.print(f"{len(tracks)} narracoes geradas.")
 
 
 @app.command("queue-add")
