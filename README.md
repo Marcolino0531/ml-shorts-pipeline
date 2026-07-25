@@ -10,7 +10,7 @@ Pipeline em Python para automatizar vídeos curtos (TikTok/Shorts) de produtos e
 | 2 | Filtro (nota ≥ 4.5, volume de vendas) + download das imagens | `mlshorts.collectors.filters` / `.images` | implementado |
 | 3 | Roteiro de até 45s via OpenAI/Claude | `mlshorts.scriptgen` | implementado |
 | 4 | Narração via ElevenLabs (áudio por cena + duração exata) | `mlshorts.tts` | implementado |
-| 5 | Montagem 1080x1920 com FFmpeg e legendas dinâmicas | `mlshorts.video` | próxima fase |
+| 5 | Montagem 1080x1920 com FFmpeg e legendas dinâmicas | `mlshorts.video` | implementado |
 | 6 | Publicação com intervalo mínimo por nicho e fila agendada | `mlshorts.publish` | implementado |
 | 7 | Metadados (título, descrição, hashtags, link de afiliado) | `mlshorts.publish` | próxima fase |
 | — | Dashboard Streamlit de acompanhamento | `mlshorts.dashboard` | implementado |
@@ -41,7 +41,10 @@ src/mlshorts/
   publish/
     store.py              fila + historico (JsonPublicationStore | SqlitePublicationStore)
     scheduler.py          PublicationScheduler: intervalo por nicho, enfileiramento e process_due
-  video/                  montagem FFmpeg (proxima fase)
+  video/
+    captions.py           legendas dinamicas (.ass) com a minutagem do narration.json
+    renderer.py           VideoRenderer: um comando FFmpeg (imagens + audios + legendas)
+    service.py            RenderService: um narration.json -> um data/video/<id>.mp4
   dashboard/
     data.py               DashboardData: le os artefatos de data/ e a fila (sem Streamlit)
     app.py                painel com as abas Produtos/Roteiros/Audio/Video/Fila
@@ -76,6 +79,9 @@ mlshorts script --products-file data/raw/products-20260101T000000Z.json
 
 mlshorts narrate                           # narra o ultimo data/out/scripts-*.json
 mlshorts narrate --product-id MLB123 -v    # apenas um produto
+
+mlshorts render                            # monta os MP4 1080x1920 em data/video/
+mlshorts render --product-id MLB123 -v     # apenas um produto
 
 mlshorts queue-add --product-id MLB123 --niche Celulares --media data/video/MLB123.mp4
 mlshorts publish-queue          # rode periodicamente (cron): publica o que ja pode ir ao ar
@@ -113,6 +119,25 @@ A resposta é sempre estruturada:
 O `ScriptGenerator` valida a presença dos quatro blocos, reordena as cenas, estima a duração
 (`palavras / words_per_second`, default 2.6 para pt-BR) e, se passar de 45s, pede uma reescrita
 mais curta antes de desistir. A saída vai para `data/out/scripts-<timestamp>.json`.
+
+## Vídeo (`video`)
+
+```bash
+mlshorts render               # precisa de ffmpeg no PATH
+```
+
+Um único comando FFmpeg por produto, montado a partir de `data/audio/<id>/narration.json`:
+
+- uma imagem de `data/images/<id>/` por cena (as imagens ciclam se houver menos que cenas; sem
+  imagem nenhuma, entra fundo sólido), cada uma cobrindo a fala **mais a pausa seguinte**,
+  enquadrada em 1080x1920 com `scale`+`pad` e um zoom lento (`zoompan`);
+- os áudios entram nos offsets exatos do manifesto (`adelay` por cena + `amix`), então a imagem,
+  a legenda e a narração não podem sair de sincronia;
+- legendas dinâmicas em blocos de 3 palavras (tempo proporcional ao número de palavras dentro da
+  cena) geradas em `.ass` e queimadas com o filtro `subtitles`.
+
+Saída: `data/video/<product_id>.mp4` (H.264 + AAC, `+faststart`) e o `.ass` ao lado para conferência.
+Estilo, fonte, zoom, CRF e palavras por legenda ficam na seção `video:` do settings.yaml.
 
 ## Dashboard (`dashboard`)
 

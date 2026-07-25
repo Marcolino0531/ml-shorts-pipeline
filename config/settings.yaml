@@ -63,7 +63,21 @@ publishing:
   require_approval: false
 
 video:
+  # vertical obrigatorio para Shorts/TikTok/Reels
   width: 1080
   height: 1920
   fps: 30
   max_duration_seconds: 45
+  background_color: black
+  zoom_per_scene: 0.08
+  crf: 20
+  preset: medium
+  audio_bitrate: 192k
+  # legendas dinamicas queimadas no video
+  font_name: DejaVu Sans
+  font_size: 64
+  font_color: "&H00FFFFFF"
+  outline_color: "&H00000000"
+  outline: 4
+  caption_words_per_chunk: 3
+  caption_margin_bottom: 420

@@ -1,7 +1,15 @@
-"""Etapa 4 (proxima fase): montagem 1080x1920 com FFmpeg e legendas dinamicas.
+"""Etapa 4: montagem 1080x1920 com FFmpeg e legendas dinamicas sincronizadas."""
 
-Contrato previsto:
-    render(product: Product, script: VideoScript, audio_path: Path) -> Path  # arquivo .mp4
-"""
+from mlshorts.video.captions import CaptionCue, build_ass, build_cues
+from mlshorts.video.renderer import RenderError, VideoRenderer, find_images
+from mlshorts.video.service import RenderService
 
-__all__: list[str] = []
+__all__ = [
+    "CaptionCue",
+    "RenderError",
+    "RenderService",
+    "VideoRenderer",
+    "build_ass",
+    "build_cues",
+    "find_images",
+]
