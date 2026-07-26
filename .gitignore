@@ -15,4 +15,5 @@ data/images/*
 data/audio/*
 data/video/*
 data/out/*
+data/smoke/
 !data/**/.gitkeep

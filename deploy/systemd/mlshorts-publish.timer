@@ -1,0 +1,13 @@
+[Unit]
+Description=Checa a fila de publicacao do ml-shorts-pipeline a cada 12 horas
+
+[Timer]
+# 12:00 e 00:00: intercalado com a coleta. O intervalo real entre posts continua
+# sendo o publishing.min_interval_hours do settings.yaml.
+OnCalendar=*-*-* 00,12:00:00
+Persistent=true
+RandomizedDelaySec=600
+Unit=mlshorts-publish.service
+
+[Install]
+WantedBy=timers.target

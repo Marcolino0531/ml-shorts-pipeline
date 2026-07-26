@@ -53,7 +53,14 @@ src/mlshorts/
     data.py               DashboardData: le os artefatos de data/ e a fila (sem Streamlit)
     app.py                painel com as abas Produtos/Roteiros/Audio/Video/Fila
   storage/paths.py        convenção de diretórios em data/
-scripts/seed_demo_data.py  popula data/ com artefatos ficticios para ver o painel
+scripts/
+  seed_demo_data.py       popula data/ com artefatos ficticios para ver o painel
+  smoke_pipeline.py/.sh   health check: fluxo completo em modo simulado
+  pipeline_daily.sh       rodada de producao (collect -> script -> narrate -> render)
+deploy/
+  setup_linux.sh          provisiona a VPS Ubuntu (Python, FFmpeg, Playwright, venv)
+  crontab.example         agendamento por cron
+  systemd/                services + timers (coleta 12h, fila 12h, dashboard)
 data/{raw,images,audio,video,out}   artefatos por etapa (versionados apenas os .gitkeep)
 tests/                    testes unitários (HTTP mockado com respx)
 ```
@@ -67,9 +74,44 @@ playwright install chromium      # apenas para o coletor de fallback
 cp .env.example .env             # preencha as credenciais
 ```
 
-`ML_CLIENT_ID` / `ML_CLIENT_SECRET` vêm de uma aplicação criada no
-[DevCenter do Mercado Livre](https://developers.mercadolivre.com.br/devcenter). Sem elas o
-pipeline usa apenas o coletor por scraping.
+### Preenchendo o `.env`
+
+| Variável | Onde conseguir | Obrigatória? |
+| --- | --- | --- |
+| `ML_CLIENT_ID`, `ML_CLIENT_SECRET` | [DevCenter do Mercado Livre](https://developers.mercadolivre.com.br/devcenter) → *Criar aplicação* (redirect URI pode ser `https://localhost`) | Não — sem elas a coleta cai no scraping por Playwright |
+| `ML_SITE_ID` | `MLB` para o Brasil | Sim (já vem preenchida) |
+| `ML_AFFILIATE_TAG` | [Programa de Afiliados do ML](https://www.mercadolivre.com.br/afiliados/hub) → seu identificador de rastreio | Sim, para monetizar (sem ela o link vai limpo) |
+| `OPENAI_API_KEY` | https://platform.openai.com/api-keys | Sim, se `SCRIPT_PROVIDER=openai` |
+| `ANTHROPIC_API_KEY` | https://console.anthropic.com/settings/keys | Sim, se `SCRIPT_PROVIDER=anthropic` |
+| `SCRIPT_PROVIDER` | `openai` ou `anthropic` | Sim |
+| `ELEVENLABS_API_KEY` | https://elevenlabs.io/app/settings/api-keys | Sim (narração) |
+| `ELEVENLABS_VOICE_ID` | https://elevenlabs.io/app/voice-library → botão **ID** da voz escolhida (ou preencha `tts.voice_id` no YAML) | Sim (narração) |
+| `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET` | [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → habilite a *YouTube Data API v3* → credencial OAuth do tipo **TVs and Limited Input** ou **Desktop app** | Só para postar no YouTube |
+| `YOUTUBE_REFRESH_TOKEN` | gere uma vez no [OAuth Playground](https://developers.google.com/oauthplayground) (engrenagem → *Use your own OAuth credentials*) com o escopo `https://www.googleapis.com/auth/youtube.upload` e copie o *refresh token* | Só para postar no YouTube |
+| `TIKTOK_ACCESS_TOKEN` | [TikTok for Developers](https://developers.tiktok.com/) → app com o produto *Content Posting API* e escopo `video.publish` | Só para postar no TikTok |
+
+O `.env` nunca é comitado (está no `.gitignore`); na VPS deixe-o como `chmod 600 .env`.
+Enquanto as credenciais das redes não estiverem prontas, mantenha `publishing.platforms: [dry-run]`
+no `config/settings.yaml` — o pipeline roda inteiro sem postar nada.
+
+### Health check
+
+```bash
+./scripts/smoke_pipeline.sh          # collect -> script -> tts -> render -> publish, em modo simulado
+./scripts/smoke_pipeline.sh --keep   # mantem os artefatos em data/smoke/ para inspecionar
+```
+
+Usa as classes de produção e o FFmpeg de verdade, trocando só o que custa dinheiro (coletor do ML,
+LLM e ElevenLabs) por dublês — então valida a fiação real: minutagem medida por `ffprobe`, MP4
+em 1080x1920, metadados, fila e publicação em dry-run. Saída esperada:
+
+```
+  ok collect  MLBSMOKE - nota 4.8 - 2 imagens
+  ok script   4 cenas - 16.5s estimados
+  ok tts      4 audios - 18.15s medidos
+  ok render   1080x1920 - 18.10s - 291KB
+  ok publish  published (dry-run) - 3 hashtags
+```
 
 ## Uso
 
@@ -262,10 +304,68 @@ publishing:
 
 O `CollectionService` encadeia os dois: o primeiro coletor que devolver produtos vence.
 
+## Deploy na VPS (Hetzner / Ubuntu 22.04+)
+
+Uma CX22 (2 vCPU / 4 GB) dá conta: o render é o único passo pesado e leva segundos por vídeo.
+
+**1. Provisionar**
+
+```bash
+ssh root@<ip-da-vps>
+apt-get update && apt-get install -y curl
+curl -fsSL https://raw.githubusercontent.com/Marcolino0531/ml-shorts-pipeline/main/deploy/setup_linux.sh | bash
+```
+
+O script instala Python, FFmpeg/ffprobe, git e a fonte DejaVu (usada nas legendas), clona o repo
+em `~/ml-shorts-pipeline`, cria a `.venv` com `pip install -e ".[dev]"`, instala o Chromium do
+Playwright (`WITH_PLAYWRIGHT=0` desliga), cria `data/*` e o `.env` a partir do exemplo, e roda os
+testes no fim. É idempotente — rodar de novo atualiza o repositório e as dependências.
+
+**2. Credenciais e fuso**
+
+```bash
+timedatectl set-timezone America/Sao_Paulo   # os horários dos timers seguem o fuso do servidor
+cd ~/ml-shorts-pipeline && nano .env         # veja a tabela em "Preenchendo o .env"
+./scripts/smoke_pipeline.sh                  # deve terminar com "Pipeline saudavel"
+```
+
+**3. Agendar (a cada 12h)** — escolha **um** dos dois:
+
+```bash
+# systemd (recomendado: log no journal, Persistent=true recupera execuções perdidas)
+cp deploy/systemd/*.service deploy/systemd/*.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now mlshorts-collect.timer mlshorts-publish.timer
+systemctl list-timers 'mlshorts*'
+journalctl -u mlshorts-collect -f
+
+# ou cron
+crontab -e   # cole o conteúdo de deploy/crontab.example
+```
+
+`mlshorts-collect.timer` roda `scripts/pipeline_daily.sh` às 06:00 e 18:00 (coleta → roteiro →
+narração → render → `queue-add` no nicho de `NICHE=`), e `mlshorts-publish.timer` roda
+`publish --process-queue` às 00:00 e 12:00. Quem decide de fato se um vídeo vai ao ar continua
+sendo o `publishing.min_interval_hours` + a fila, então rodar o timer com folga é seguro.
+Ajuste `User=` e os caminhos `/root/...` nos units se instalou em outro usuário/diretório.
+
+**4. Dashboard como serviço**
+
+```bash
+cp deploy/systemd/mlshorts-dashboard.service /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now mlshorts-dashboard
+ssh -N -L 8501:127.0.0.1:8501 root@<ip-da-vps>   # abra http://localhost:8501 na sua máquina
+```
+
+O serviço escuta só em `127.0.0.1` de propósito: o painel aprova publicações e mostra dados de
+afiliado, então exponha-o por túnel SSH ou atrás de um proxy com HTTPS e senha — nunca direto na
+internet. Com `publishing.require_approval: true`, nada é postado sem clicar em **Aprovar** aqui.
+
 ## Testes e qualidade
 
 ```bash
 pytest
 ruff check . && ruff format --check .
 mypy
+./scripts/smoke_pipeline.sh      # integracao ponta a ponta (FFmpeg de verdade, APIs simuladas)
 ```

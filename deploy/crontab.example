@@ -1,0 +1,24 @@
+# Agendamento do ml-shorts-pipeline (crontab -e do usuario que rodou o setup_linux.sh).
+# Ajuste APP_DIR se o repositorio nao estiver em $HOME/ml-shorts-pipeline.
+#
+# O cron nao carrega o .env: quem le as credenciais e o proprio pydantic-settings,
+# a partir do arquivo .env na raiz do projeto (por isso o `cd` antes de cada comando).
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+APP_DIR=/root/ml-shorts-pipeline
+MAILTO=""
+
+# ---------------------------------------------------------------- coleta (12h)
+# 06:00 e 18:00: coleta produtos em alta, gera roteiro, narra e renderiza o video,
+# deixando o MP4 pronto em data/video/ para aprovacao no dashboard.
+0 6,18 * * * cd $APP_DIR && ./scripts/pipeline_daily.sh >> data/out/cron-pipeline.log 2>&1
+
+# ------------------------------------------------------- fila de publicacao (1h)
+# De hora em hora, mas quem decide se algo vai ao ar e o `publishing.min_interval_hours`
+# (24h por padrao, 12h nos nichos configurados): so sai o que esta vencido e aprovado.
+30 * * * * cd $APP_DIR && ./.venv/bin/mlshorts publish --process-queue >> data/out/cron-publish.log 2>&1
+
+# --------------------------------------------------------------------- limpeza
+# Domingo 04:00: mantem apenas os ultimos 30 dias de artefatos e logs.
+0 4 * * 0 cd $APP_DIR && find data/video data/audio -type f -mtime +30 -delete && find data/out -name '*.log' -mtime +30 -delete

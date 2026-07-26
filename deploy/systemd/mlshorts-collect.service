@@ -1,0 +1,19 @@
+[Unit]
+Description=ml-shorts-pipeline: coleta, roteiro, narracao e render
+Documentation=https://github.com/Marcolino0531/ml-shorts-pipeline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# ajuste User e os caminhos se o repositorio nao estiver em /root
+User=root
+WorkingDirectory=/root/ml-shorts-pipeline
+# nicho usado no queue-add dos videos renderizados nesta rodada
+Environment=NICHE=Celulares
+ExecStart=/root/ml-shorts-pipeline/scripts/pipeline_daily.sh
+# render de video e pesado: nao competir com o dashboard
+Nice=10
+TimeoutStartSec=3600
+StandardOutput=append:/root/ml-shorts-pipeline/data/out/collect.log
+StandardError=inherit

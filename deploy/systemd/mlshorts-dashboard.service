@@ -1,0 +1,19 @@
+[Unit]
+Description=ml-shorts-pipeline: dashboard Streamlit
+Documentation=https://github.com/Marcolino0531/ml-shorts-pipeline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# ajuste User e os caminhos se o repositorio nao estiver em /root
+User=root
+WorkingDirectory=/root/ml-shorts-pipeline
+Environment=STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+# 127.0.0.1: exponha por um proxy (Nginx/Caddy) com HTTPS e senha, nunca direto na internet
+ExecStart=/root/ml-shorts-pipeline/.venv/bin/mlshorts dashboard --host 127.0.0.1 --port 8501
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
