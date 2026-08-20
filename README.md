@@ -293,14 +293,18 @@ publishing:
 
 ## Estratégia de coleta
 
-1. **API oficial** (`MercadoLivreAPICollector`): autentica por `client_credentials`, lê
-   `/highlights/{site}/category/{id}` para os mais vendidos. Os destaques vêm em três tipos:
-   `ITEM` já é um anúncio, enquanto `PRODUCT` e `USER_PRODUCT` são produtos de catálogo e dão
-   404 em `/items` — para esses o coletor lê `GET /products/{id}` e usa o `buy_box_winner.item_id`
-   (categorias como MLB1618/Cozinha são quase 100% catálogo e voltavam vazias sem isso).
-   Com os ids resolvidos, faz multiget em `/items`,
-   complementa com `/items/{id}/description` e `/reviews/item/{id}` (só notas ≥ 4,
-   ordenadas por likes).
+1. **API oficial** (`MercadoLivreAPICollector`): autentica por `client_credentials` e lê
+   `/sites/{site}/search?category=<id>&sort=sold_quantity_desc`, que devolve **anúncios**
+   direto, paginando até o limite da categoria. Se a API recusar (400) ou ignorar esse `sort`,
+   o coletor cai para a ordenação padrão e registra no log quais `available_sorts` existem.
+   `/highlights/{site}/category/{id}` ficou como fallback (vitrines curadas): lá os destaques
+   vêm em três tipos e os de catálogo (`PRODUCT`/`USER_PRODUCT`) são resolvidos via
+   `GET /products/{id}` → `buy_box_winner.item_id` — que só vem preenchido para token de
+   vendedor, motivo pelo qual a busca virou a fonte principal.
+   Com os ids em mão, faz multiget em `/items`, complementa com `/items/{id}/description` e
+   `/reviews/item/{id}` (só notas ≥ 4, ordenadas por likes) e registra o resumo monetário da
+   categoria (anúncios, unidades vendidas, ticket médio e faturamento estimado, somados em
+   centavos por `collectors/stats.py`).
 2. **Fallback por scraping** (`MercadoLivreScraperCollector`): usado quando não há
    credenciais ou a API falha. Navega em `/mais-vendidos/{categoria}`, abre cada PDP e
    extrai nota, avaliações, ficha técnica, comentários e imagens (thumb `-I` convertida

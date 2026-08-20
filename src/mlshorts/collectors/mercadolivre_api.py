@@ -1,7 +1,7 @@
 """Coletor baseado na API oficial do Mercado Livre.
 
-Fluxo: token (client_credentials) -> highlights da categoria -> multiget de itens ->
-descricao + reviews de cada item.
+Fluxo: token (client_credentials) -> busca da categoria ordenada por mais vendidos ->
+multiget de itens -> descricao + reviews de cada item. `/highlights` fica como fallback.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from mlshorts.collectors.base import CollectorError
+from mlshorts.collectors.stats import summarize_listings
 from mlshorts.config import Secrets, get_secrets
 from mlshorts.models import Product, ProductImage, Review
 
@@ -23,6 +24,13 @@ logger = logging.getLogger(__name__)
 API_BASE = "https://api.mercadolibre.com"
 TOKEN_URL = f"{API_BASE}/oauth/token"
 ITEM_BATCH_SIZE = 20
+SEARCH_PAGE_SIZE = 50
+# a busca publica nao pagina alem de 1000 resultados
+SEARCH_MAX_OFFSET = 1000
+# `sold_quantity_desc` nao esta documentado em `available_sorts`, mas continua sendo aceito;
+# quando a API recusa ou ignora, o coletor cai para a ordenacao padrao e avisa no log.
+SOLD_SEARCH_SORT = "sold_quantity_desc"
+DEFAULT_SEARCH_SORT = "relevance"
 # destaques que apontam para o catalogo, nao para um anuncio: precisam do buy box
 CATALOG_TYPES = frozenset({"PRODUCT", "USER_PRODUCT"})
 _SIZE_RE = re.compile(r"^(\d+)x(\d+)$")
@@ -47,7 +55,7 @@ _retry_http = retry(
 
 
 class MercadoLivreAPICollector:
-    """Coleta produtos em alta usando o endpoint /highlights."""
+    """Coleta produtos em alta usando a busca da categoria, com `/highlights` como fallback."""
 
     name = "mercadolivre-api"
 
@@ -57,12 +65,14 @@ class MercadoLivreAPICollector:
         client: httpx.Client | None = None,
         max_reviews: int = 8,
         max_images: int = 5,
+        search_sort: str = SOLD_SEARCH_SORT,
     ) -> None:
         self.secrets = secrets or get_secrets()
         self._client = client or httpx.Client(base_url=API_BASE, timeout=20.0)
         self._owns_client = client is None
         self.max_reviews = max_reviews
         self.max_images = max_images
+        self.search_sort = search_sort
         self._token: str | None = None
         self._token_expires_at: float = 0.0
 
@@ -115,15 +125,86 @@ class MercadoLivreAPICollector:
     # -------------------------------------------------------------- coleta
 
     def collect_category(self, category_id: str, limit: int) -> list[Product]:
-        item_ids = self.highlight_item_ids(category_id, limit)
+        item_ids = self.search_item_ids(category_id, limit)
         if not item_ids:
-            logger.warning("Nenhum destaque retornado para a categoria %s", category_id)
+            # `/highlights` como plano B: cobre vitrines curadas que a busca nao ordena bem
+            logger.info("Busca vazia em %s: tentando /highlights", category_id)
+            item_ids = self.highlight_item_ids(category_id, limit)
+        if not item_ids:
+            logger.warning("Nenhum anuncio encontrado para a categoria %s", category_id)
             return []
         products = self.fetch_items(item_ids)
         for product in products:
             product.attributes.setdefault("descricao", self.fetch_description(product.id))
             product.positive_reviews = self.fetch_positive_reviews(product.id)
         return products
+
+    def search_item_ids(self, category_id: str, limit: int) -> list[str]:
+        """Anuncios da categoria em `/sites/{site}/search`, do mais vendido para o menos.
+
+        Diferente de `/highlights`, a busca devolve anuncios (`MLB<numero>`) direto — sem a etapa
+        de catalogo, que exige `buy_box_winner` e so vem preenchido para token de vendedor.
+        """
+        ids: list[str] = []
+        sort = self.search_sort
+        offset = 0
+        while len(ids) < limit and offset < SEARCH_MAX_OFFSET:
+            page_size = min(SEARCH_PAGE_SIZE, limit - len(ids))
+            payload = self._search_page(category_id, sort, offset, page_size)
+            if payload is None:
+                return []
+            sort = self._effective_sort(payload, sort, category_id)
+            results = payload.get("results") or []
+            if not results:
+                break
+            stats = summarize_listings(results)
+            logger.info("Busca %s (offset %s): %s", category_id, offset, stats.as_log_line())
+            ids.extend(str(result["id"]) for result in results if result.get("id"))
+            paging = payload.get("paging") or {}
+            offset += len(results)
+            if offset >= int(paging.get("total") or 0):
+                break
+        return ids[:limit]
+
+    def _search_page(
+        self, category_id: str, sort: str, offset: int, limit: int
+    ) -> dict[str, Any] | None:
+        """Uma pagina da busca; cai para `relevance` se a API recusar a ordenacao pedida."""
+        try:
+            payload = self._get(
+                f"/sites/{self.secrets.ml_site_id}/search",
+                category=category_id,
+                sort=sort,
+                offset=offset,
+                limit=limit,
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 400 and sort != DEFAULT_SEARCH_SORT:
+                logger.warning(
+                    "Ordenacao %s recusada pela API: repetindo com %s", sort, DEFAULT_SEARCH_SORT
+                )
+                self.search_sort = DEFAULT_SEARCH_SORT
+                return self._search_page(category_id, DEFAULT_SEARCH_SORT, offset, limit)
+            logger.warning("Busca falhou em %s: %s", category_id, exc)
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _effective_sort(self, payload: dict[str, Any], requested: str, category_id: str) -> str:
+        """A API aceita o parametro e ignora silenciosamente sorts descontinuados."""
+        applied = str((payload.get("sort") or {}).get("id") or requested)
+        if applied != requested:
+            available = [
+                str(entry.get("id")) for entry in payload.get("available_sorts") or [] if entry
+            ]
+            logger.warning(
+                "%s ignorou sort=%s (aplicou %s); disponiveis: %s",
+                category_id,
+                requested,
+                applied,
+                ", ".join(available) or "nao informados",
+            )
+            self.search_sort = applied
+        return applied
 
     def highlight_item_ids(self, category_id: str, limit: int) -> list[str]:
         """Resolve os destaques em ids de anuncio (`/items`).
