@@ -29,8 +29,9 @@ SEARCH_MAX_OFFSET = 1000
 # quando a API recusa ou ignora, o coletor cai para a ordenacao padrao e avisa no log.
 SOLD_SEARCH_SORT = "sold_quantity_desc"
 DEFAULT_SEARCH_SORT = "relevance"
-# destaques que apontam para o catalogo, nao para um anuncio: precisam do buy box
+# destaques que apontam para o catalogo, nao para um anuncio: precisam ser resolvidos
 CATALOG_TYPES = frozenset({"PRODUCT", "USER_PRODUCT"})
+AVAILABLE_ITEM_STATUS = frozenset({"active", "available"})
 _SIZE_RE = re.compile(r"^(\d+)x(\d+)$")
 
 
@@ -120,7 +121,7 @@ class MercadoLivreAPICollector:
         """Anuncios da categoria em `/sites/{site}/search`, do mais vendido para o menos.
 
         Diferente de `/highlights`, a busca devolve anuncios (`MLB<numero>`) direto — sem a etapa
-        de catalogo, que exige `buy_box_winner` e so vem preenchido para token de vendedor.
+        de catalogo, cujo `buy_box_winner` so vem preenchido para token de vendedor.
         """
         ids: list[str] = []
         sort = self.search_sort
@@ -188,7 +189,7 @@ class MercadoLivreAPICollector:
 
         `/highlights` devolve tres tipos: `ITEM` ja e um anuncio, mas `PRODUCT` e
         `USER_PRODUCT` sao produtos de catalogo e dao 404 em `/items` — para esses e preciso
-        descobrir o anuncio vencedor do buy box. Categorias como MLB1618 (Cozinha) sao quase
+        resolver qual anuncio os representa. Categorias como MLB1618 (Cozinha) sao quase
         inteiramente catalogo, e sem essa resolucao voltavam vazias.
         """
         payload = self._get(f"/highlights/{self.secrets.ml_site_id}/category/{category_id}")
@@ -204,11 +205,11 @@ class MercadoLivreAPICollector:
             if entry_type == "ITEM":
                 item_id: str | None = str(entry_id)
             elif entry_type in CATALOG_TYPES:
-                item_id = self.buy_box_item_id(str(entry_id))
+                item_id = self.catalog_item_id(str(entry_id))
             else:
                 logger.debug("Destaque de tipo %s ignorado (%s)", entry_type, entry_id)
                 continue
-            # o mesmo anuncio pode vencer o buy box de mais de um produto de catalogo
+            # o mesmo anuncio pode representar mais de um produto de catalogo
             if item_id and item_id not in seen:
                 seen.add(item_id)
                 ids.append(item_id)
@@ -216,8 +217,19 @@ class MercadoLivreAPICollector:
                 break
         return ids
 
+    def catalog_item_id(self, product_id: str) -> str | None:
+        """Anuncio que representa um produto de catalogo.
+
+        Preferencia pelo vencedor do buy box, mas ele vem nulo na maioria dos produtos (e sempre
+        que o token nao e de vendedor). Nesse caso a lista de concorrentes em
+        `/products/{id}/items` ainda resolve o anuncio; so descarta se nem ela tiver nada.
+        """
+        item_id = self.buy_box_item_id(product_id)
+        if item_id:
+            return item_id
+        return self.cheapest_catalog_item_id(product_id)
+
     def buy_box_item_id(self, product_id: str) -> str | None:
-        """Anuncio vencedor do buy box de um produto de catalogo."""
         try:
             payload = self._get(f"/products/{product_id}")
         except httpx.HTTPStatusError as exc:
@@ -225,10 +237,29 @@ class MercadoLivreAPICollector:
             return None
         winner = payload.get("buy_box_winner") or {}
         item_id = winner.get("item_id")
-        if not item_id:
-            logger.info("Catalogo %s sem vencedor de buy box: ignorado", product_id)
+        return str(item_id) if item_id else None
+
+    def cheapest_catalog_item_id(self, product_id: str) -> str | None:
+        """Entre os concorrentes do catalogo, o anuncio ativo mais barato."""
+        try:
+            payload = self._get(f"/products/{product_id}/items")
+        except httpx.HTTPStatusError as exc:
+            logger.info("Catalogo %s sem anuncios listaveis: %s", product_id, exc)
             return None
-        return str(item_id)
+        results = payload.get("results") or [] if isinstance(payload, dict) else []
+        candidates: list[tuple[float, str]] = []
+        for entry in results:
+            item_id = entry.get("item_id")
+            if item_id and _is_available(entry):
+                candidates.append((_catalog_price(entry), str(item_id)))
+        if not candidates:
+            logger.info("Catalogo %s sem anuncio disponivel: ignorado", product_id)
+            return None
+        logger.debug("Catalogo %s: %s", product_id, summarize_listings(results).as_log_line())
+        # anuncio sem preco nao concorre com quem tem preco; empate fica com o primeiro da lista
+        priced = [candidate for candidate in candidates if candidate[0] > 0]
+        chosen = min(priced, key=lambda candidate: candidate[0]) if priced else candidates[0]
+        return chosen[1]
 
     def fetch_items(self, item_ids: list[str]) -> list[Product]:
         products: list[Product] = []
@@ -320,6 +351,21 @@ class MercadoLivreAPICollector:
                 ProductImage(id=str(picture.get("id", "")), url=url, width=width, height=height)
             )
         return images
+
+
+def _is_available(entry: dict[str, Any]) -> bool:
+    """Anuncio pausado/encerrado nao serve para o video: o link cairia em pagina indisponivel."""
+    status = entry.get("status")
+    return status is None or str(status).lower() in AVAILABLE_ITEM_STATUS
+
+
+def _catalog_price(entry: dict[str, Any]) -> float:
+    """`/products/{id}/items` usa `current_price`; `price` aparece em respostas antigas."""
+    for key in ("current_price", "price"):
+        value = entry.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+            return float(value)
+    return 0.0
 
 
 def _parse_size(size: str) -> tuple[int, int]:

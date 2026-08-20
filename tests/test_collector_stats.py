@@ -61,6 +61,22 @@ def test_preco_em_string_e_quantidade_fracionaria():
     assert stats.estimated_revenue == 2500.0
 
 
+def test_agrega_concorrentes_do_catalogo_por_current_price():
+    """`/products/{id}/items` nao tem `price`, e sim `current_price`."""
+    stats = summarize_listings(
+        [
+            {"item_id": "MLB777", "current_price": 149.9, "sold_quantity": 10, "status": "active"},
+            {"item_id": "MLB666", "current_price": 129.9, "status": "active"},
+            {"item_id": "MLB555", "status": "closed"},
+        ]
+    )
+
+    assert stats.listings == 2
+    assert (stats.min_price, stats.max_price) == (129.9, 149.9)
+    assert stats.average_price == 139.9
+    assert stats.estimated_revenue == 1499.0
+
+
 def test_lista_vazia():
     stats = summarize_listings([])
 
