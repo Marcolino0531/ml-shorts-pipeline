@@ -294,7 +294,11 @@ publishing:
 ## Estratégia de coleta
 
 1. **API oficial** (`MercadoLivreAPICollector`): autentica por `client_credentials`, lê
-   `/highlights/{site}/category/{id}` para os mais vendidos, faz multiget em `/items`,
+   `/highlights/{site}/category/{id}` para os mais vendidos. Os destaques vêm em três tipos:
+   `ITEM` já é um anúncio, enquanto `PRODUCT` e `USER_PRODUCT` são produtos de catálogo e dão
+   404 em `/items` — para esses o coletor lê `GET /products/{id}` e usa o `buy_box_winner.item_id`
+   (categorias como MLB1618/Cozinha são quase 100% catálogo e voltavam vazias sem isso).
+   Com os ids resolvidos, faz multiget em `/items`,
    complementa com `/items/{id}/description` e `/reviews/item/{id}` (só notas ≥ 4,
    ordenadas por likes).
 2. **Fallback por scraping** (`MercadoLivreScraperCollector`): usado quando não há
