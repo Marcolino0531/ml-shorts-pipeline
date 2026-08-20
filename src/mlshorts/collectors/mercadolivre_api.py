@@ -12,7 +12,7 @@ import time
 from typing import Any
 
 import httpx
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from mlshorts.collectors.base import CollectorError
 from mlshorts.config import Secrets, get_secrets
@@ -23,10 +23,23 @@ logger = logging.getLogger(__name__)
 API_BASE = "https://api.mercadolibre.com"
 TOKEN_URL = f"{API_BASE}/oauth/token"
 ITEM_BATCH_SIZE = 20
+# destaques que apontam para o catalogo, nao para um anuncio: precisam do buy box
+CATALOG_TYPES = frozenset({"PRODUCT", "USER_PRODUCT"})
 _SIZE_RE = re.compile(r"^(\d+)x(\d+)$")
 
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Repetir 404 nao ajuda: catalogo sem anuncio e item sem descricao respondem sempre igual."""
+    if isinstance(exc, httpx.TransportError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        return status == 429 or status >= 500
+    return False
+
+
 _retry_http = retry(
-    retry=retry_if_exception_type((httpx.TransportError, httpx.HTTPStatusError)),
+    retry=retry_if_exception(_is_retryable),
     wait=wait_exponential(multiplier=1, min=1, max=10),
     stop=stop_after_attempt(3),
     reraise=True,
@@ -113,10 +126,51 @@ class MercadoLivreAPICollector:
         return products
 
     def highlight_item_ids(self, category_id: str, limit: int) -> list[str]:
+        """Resolve os destaques em ids de anuncio (`/items`).
+
+        `/highlights` devolve tres tipos: `ITEM` ja e um anuncio, mas `PRODUCT` e
+        `USER_PRODUCT` sao produtos de catalogo e dao 404 em `/items` — para esses e preciso
+        descobrir o anuncio vencedor do buy box. Categorias como MLB1618 (Cozinha) sao quase
+        inteiramente catalogo, e sem essa resolucao voltavam vazias.
+        """
         payload = self._get(f"/highlights/{self.secrets.ml_site_id}/category/{category_id}")
         content = payload.get("content", []) if isinstance(payload, dict) else []
-        ids = [entry["id"] for entry in content if entry.get("type") == "ITEM" and entry.get("id")]
-        return ids[:limit]
+
+        ids: list[str] = []
+        seen: set[str] = set()
+        for entry in content:
+            entry_id = entry.get("id")
+            entry_type = entry.get("type")
+            if not entry_id:
+                continue
+            if entry_type == "ITEM":
+                item_id: str | None = str(entry_id)
+            elif entry_type in CATALOG_TYPES:
+                item_id = self.buy_box_item_id(str(entry_id))
+            else:
+                logger.debug("Destaque de tipo %s ignorado (%s)", entry_type, entry_id)
+                continue
+            # o mesmo anuncio pode vencer o buy box de mais de um produto de catalogo
+            if item_id and item_id not in seen:
+                seen.add(item_id)
+                ids.append(item_id)
+            if len(ids) >= limit:
+                break
+        return ids
+
+    def buy_box_item_id(self, product_id: str) -> str | None:
+        """Anuncio vencedor do buy box de um produto de catalogo."""
+        try:
+            payload = self._get(f"/products/{product_id}")
+        except httpx.HTTPStatusError as exc:
+            logger.warning("Produto de catalogo %s indisponivel: %s", product_id, exc)
+            return None
+        winner = payload.get("buy_box_winner") or {}
+        item_id = winner.get("item_id")
+        if not item_id:
+            logger.info("Catalogo %s sem vencedor de buy box: ignorado", product_id)
+            return None
+        return str(item_id)
 
     def fetch_items(self, item_ids: list[str]) -> list[Product]:
         products: list[Product] = []

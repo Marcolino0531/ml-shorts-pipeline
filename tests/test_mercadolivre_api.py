@@ -75,6 +75,98 @@ def test_collect_category_normaliza_produto(collector):
 
 
 @respx.mock
+def test_categoria_de_catalogo_resolve_o_buy_box(collector):
+    """MLB1618 (Cozinha) devolve quase so PRODUCT/USER_PRODUCT: sem o buy box, vinha vazia."""
+    respx.post(f"{API_BASE}/oauth/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+    )
+    respx.get(f"{API_BASE}/highlights/MLB/category/MLB1618").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "content": [
+                    {"id": "MLB20001", "type": "PRODUCT"},
+                    {"id": "MLB20002", "type": "USER_PRODUCT"},
+                    # mesmo anuncio vencedor do MLB20001: nao deve duplicar
+                    {"id": "MLB20003", "type": "PRODUCT"},
+                    {"id": "MLB20004", "type": "PRODUCT"},  # sem vencedor de buy box
+                    {"id": "MLB20005", "type": "PRODUCT"},  # 404
+                    {"type": "PRODUCT"},  # entrada sem id
+                    {"id": "MLB999", "type": "ITEM"},
+                ]
+            },
+        )
+    )
+    respx.get(f"{API_BASE}/products/MLB20001").mock(
+        return_value=httpx.Response(200, json={"buy_box_winner": {"item_id": "MLB111"}})
+    )
+    respx.get(f"{API_BASE}/products/MLB20002").mock(
+        return_value=httpx.Response(200, json={"buy_box_winner": {"item_id": "MLB222"}})
+    )
+    respx.get(f"{API_BASE}/products/MLB20003").mock(
+        return_value=httpx.Response(200, json={"buy_box_winner": {"item_id": "MLB111"}})
+    )
+    respx.get(f"{API_BASE}/products/MLB20004").mock(
+        return_value=httpx.Response(200, json={"buy_box_winner": None})
+    )
+    respx.get(f"{API_BASE}/products/MLB20005").mock(return_value=httpx.Response(404))
+
+    item_ids = collector.highlight_item_ids("MLB1618", limit=10)
+
+    assert item_ids == ["MLB111", "MLB222", "MLB999"]
+
+
+@respx.mock
+def test_limite_para_de_resolver_o_catalogo_ao_atingir_o_maximo(collector):
+    respx.post(f"{API_BASE}/oauth/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+    )
+    respx.get(f"{API_BASE}/highlights/MLB/category/MLB1618").mock(
+        return_value=httpx.Response(
+            200,
+            json={"content": [{"id": f"MLB2000{index}", "type": "PRODUCT"} for index in range(5)]},
+        )
+    )
+    routes = [
+        respx.get(f"{API_BASE}/products/MLB2000{index}").mock(
+            return_value=httpx.Response(200, json={"buy_box_winner": {"item_id": f"MLB{index}"}})
+        )
+        for index in range(5)
+    ]
+
+    assert collector.highlight_item_ids("MLB1618", limit=2) == ["MLB0", "MLB1"]
+    # nao gasta chamada de catalogo depois de completar o limite
+    assert [route.called for route in routes] == [True, True, False, False, False]
+
+
+@respx.mock
+def test_collect_category_de_catalogo_traz_o_produto_completo(collector):
+    respx.post(f"{API_BASE}/oauth/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+    )
+    respx.get(f"{API_BASE}/highlights/MLB/category/MLB1618").mock(
+        return_value=httpx.Response(200, json={"content": [{"id": "MLB20001", "type": "PRODUCT"}]})
+    )
+    respx.get(f"{API_BASE}/products/MLB20001").mock(
+        return_value=httpx.Response(200, json={"buy_box_winner": {"item_id": "MLB123"}})
+    )
+    items = respx.get(f"{API_BASE}/items").mock(
+        return_value=httpx.Response(200, json=[{"code": 200, "body": ITEM_BODY}])
+    )
+    respx.get(f"{API_BASE}/items/MLB123/description").mock(
+        return_value=httpx.Response(200, json={"plain_text": "Panela antiaderente"})
+    )
+    respx.get(f"{API_BASE}/reviews/item/MLB123").mock(
+        return_value=httpx.Response(200, json={"reviews": []})
+    )
+
+    products = collector.collect_category("MLB1618", limit=10)
+
+    assert [product.id for product in products] == ["MLB123"]
+    assert items.calls[0].request.url.params["ids"] == "MLB123"
+
+
+@respx.mock
 def test_sem_credenciais_falha_com_collector_error():
     collector = MercadoLivreAPICollector(secrets=Secrets())
     with pytest.raises(CollectorError):
