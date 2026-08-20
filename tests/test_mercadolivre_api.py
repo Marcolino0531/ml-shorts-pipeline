@@ -239,7 +239,7 @@ def test_categoria_de_catalogo_resolve_o_buy_box(collector):
                     {"id": "MLB20002", "type": "USER_PRODUCT"},
                     # mesmo anuncio vencedor do MLB20001: nao deve duplicar
                     {"id": "MLB20003", "type": "PRODUCT"},
-                    {"id": "MLB20004", "type": "PRODUCT"},  # sem vencedor de buy box
+                    {"id": "MLB20004", "type": "PRODUCT"},  # sem buy box e sem concorrentes
                     {"id": "MLB20005", "type": "PRODUCT"},  # 404
                     {"type": "PRODUCT"},  # entrada sem id
                     {"id": "MLB999", "type": "ITEM"},
@@ -259,11 +259,124 @@ def test_categoria_de_catalogo_resolve_o_buy_box(collector):
     respx.get(f"{API_BASE}/products/MLB20004").mock(
         return_value=httpx.Response(200, json={"buy_box_winner": None})
     )
+    respx.get(f"{API_BASE}/products/MLB20004/items").mock(
+        return_value=httpx.Response(200, json={"results": []})
+    )
     respx.get(f"{API_BASE}/products/MLB20005").mock(return_value=httpx.Response(404))
+    respx.get(f"{API_BASE}/products/MLB20005/items").mock(return_value=httpx.Response(404))
 
     item_ids = collector.highlight_item_ids("MLB1618", limit=10)
 
     assert item_ids == ["MLB111", "MLB222", "MLB999"]
+
+
+@respx.mock
+def test_catalogo_sem_buy_box_usa_o_concorrente_mais_barato(collector):
+    """`buy_box_winner` nulo e a regra, nao a excecao: `/products/{id}/items` salva o produto."""
+    respx.post(f"{API_BASE}/oauth/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+    )
+    respx.get(f"{API_BASE}/highlights/MLB/category/MLB1618").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "content": [
+                    {"id": "MLB6309815", "type": "PRODUCT"},
+                    {"id": "MLB6309816", "type": "USER_PRODUCT"},
+                ]
+            },
+        )
+    )
+    for product_id in ("MLB6309815", "MLB6309816"):
+        respx.get(f"{API_BASE}/products/{product_id}").mock(
+            return_value=httpx.Response(200, json={"buy_box_winner": None})
+        )
+    respx.get(f"{API_BASE}/products/MLB6309815/items").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"item_id": "MLB777", "current_price": 149.9, "status": "active"},
+                    {"item_id": "MLB666", "current_price": 129.9, "status": "active"},
+                    {"item_id": "MLB555", "current_price": 99.9, "status": "paused"},
+                ]
+            },
+        )
+    )
+    # unico anuncio, sem status: aproveitado do mesmo jeito
+    respx.get(f"{API_BASE}/products/MLB6309816/items").mock(
+        return_value=httpx.Response(200, json={"results": [{"item_id": "MLB888"}]})
+    )
+
+    assert collector.highlight_item_ids("MLB1618", limit=10) == ["MLB666", "MLB888"]
+
+
+@respx.mock
+def test_catalogo_sem_anuncio_disponivel_e_descartado(collector):
+    respx.post(f"{API_BASE}/oauth/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+    )
+    respx.get(f"{API_BASE}/highlights/MLB/category/MLB1618").mock(
+        return_value=httpx.Response(
+            200, json={"content": [{"id": "MLB6309815", "type": "PRODUCT"}]}
+        )
+    )
+    respx.get(f"{API_BASE}/products/MLB6309815").mock(
+        return_value=httpx.Response(200, json={"buy_box_winner": None})
+    )
+    respx.get(f"{API_BASE}/products/MLB6309815/items").mock(
+        return_value=httpx.Response(
+            200, json={"results": [{"item_id": "MLB555", "status": "closed"}]}
+        )
+    )
+
+    assert collector.highlight_item_ids("MLB1618", limit=10) == []
+
+
+@respx.mock
+def test_collect_category_resolve_catalogo_sem_buy_box_ate_o_produto(collector):
+    """Ponta a ponta do fallback: preco e vendas agregados vem do anuncio escolhido."""
+    respx.post(f"{API_BASE}/oauth/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+    )
+    respx.get(f"{API_BASE}/sites/MLB/search").mock(
+        return_value=httpx.Response(200, json=search_page([], total=0))
+    )
+    respx.get(f"{API_BASE}/highlights/MLB/category/MLB1618").mock(
+        return_value=httpx.Response(
+            200, json={"content": [{"id": "MLB6309815", "type": "PRODUCT"}]}
+        )
+    )
+    respx.get(f"{API_BASE}/products/MLB6309815").mock(
+        return_value=httpx.Response(200, json={"buy_box_winner": None})
+    )
+    respx.get(f"{API_BASE}/products/MLB6309815/items").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"item_id": "MLB999", "current_price": 259.9, "status": "active"},
+                    {"item_id": "MLB123", "current_price": 199.9, "status": "active"},
+                ]
+            },
+        )
+    )
+    items = respx.get(f"{API_BASE}/items").mock(
+        return_value=httpx.Response(200, json=[{"code": 200, "body": ITEM_BODY}])
+    )
+    respx.get(f"{API_BASE}/items/MLB123/description").mock(
+        return_value=httpx.Response(200, json={"plain_text": "Panela antiaderente"})
+    )
+    respx.get(f"{API_BASE}/reviews/item/MLB123").mock(
+        return_value=httpx.Response(200, json={"reviews": []})
+    )
+
+    products = collector.collect_category("MLB1618", limit=10)
+
+    assert items.calls[0].request.url.params["ids"] == "MLB123"
+    assert [(product.id, product.price, product.sold_quantity) for product in products] == [
+        ("MLB123", 199.9, 5000)
+    ]
 
 
 @respx.mock

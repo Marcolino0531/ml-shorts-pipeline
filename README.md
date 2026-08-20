@@ -306,8 +306,11 @@ publishing:
    o coletor cai para a ordenação padrão e registra no log quais `available_sorts` existem.
    `/highlights/{site}/category/{id}` ficou como fallback (vitrines curadas): lá os destaques
    vêm em três tipos e os de catálogo (`PRODUCT`/`USER_PRODUCT`) são resolvidos via
-   `GET /products/{id}` → `buy_box_winner.item_id` — que só vem preenchido para token de
-   vendedor, motivo pelo qual a busca virou a fonte principal.
+   `GET /products/{id}` → `buy_box_winner.item_id`; como esse campo quase sempre vem nulo
+   (só é preenchido para token de vendedor — motivo pelo qual a busca virou a fonte
+   principal), o coletor então lista os concorrentes em `GET /products/{id}/items` e escolhe
+   o anúncio ativo de menor `current_price`. O catálogo só é descartado se essa lista também
+   vier vazia.
    Com os ids em mão, faz multiget em `/items`, complementa com `/items/{id}/description` e
    `/reviews/item/{id}` (só notas ≥ 4, ordenadas por likes) e registra o resumo monetário da
    categoria (anúncios, unidades vendidas, ticket médio e faturamento estimado, somados em

@@ -65,7 +65,8 @@ def summarize_listings(results: Iterable[dict[str, Any]]) -> CategoryStats:
     revenue = Decimal(0)
 
     for result in results:
-        price = _money(result.get("price"))
+        # `/sites/{site}/search` usa `price`; os concorrentes do catalogo, `current_price`
+        price = _money(result.get("price")) or _money(result.get("current_price"))
         # a busca ora devolve sold_quantity, ora so o agregado em sale_price/seller
         sold = _quantity(result.get("sold_quantity"))
         if price > 0:
