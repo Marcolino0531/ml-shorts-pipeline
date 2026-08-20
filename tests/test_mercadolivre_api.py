@@ -27,6 +27,18 @@ ITEM_BODY = {
 }
 
 
+def search_page(ids: list[str], total: int, sort: str = "sold_quantity_desc") -> dict:
+    return {
+        "sort": {"id": sort},
+        "available_sorts": [{"id": "relevance"}, {"id": "price_asc"}],
+        "paging": {"total": total, "limit": len(ids)},
+        "results": [
+            {"id": item_id, "price": 189.9, "sold_quantity": 940, "seller": {"id": 1}}
+            for item_id in ids
+        ],
+    }
+
+
 @pytest.fixture
 def collector():
     with httpx.Client(base_url=API_BASE) as client:
@@ -37,6 +49,9 @@ def collector():
 def test_collect_category_normaliza_produto(collector):
     respx.post(f"{API_BASE}/oauth/token").mock(
         return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+    )
+    respx.get(f"{API_BASE}/sites/MLB/search").mock(
+        return_value=httpx.Response(200, json=search_page([], total=0))
     )
     respx.get(f"{API_BASE}/highlights/MLB/category/MLB1051").mock(
         return_value=httpx.Response(
@@ -72,6 +87,130 @@ def test_collect_category_normaliza_produto(collector):
     assert product.images[0].width == 1200
     assert product.attributes["descricao"] == "Fone com cancelamento de ruido"
     assert [review.content for review in product.positive_reviews] == ["Excelente", "Bom custo"]
+
+
+@respx.mock
+def test_busca_por_categoria_pagina_e_devolve_anuncios(collector):
+    """Fonte principal: a busca devolve anuncios direto, sem passar por catalogo/buy box."""
+    respx.post(f"{API_BASE}/oauth/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+    )
+    search = respx.get(f"{API_BASE}/sites/MLB/search").mock(
+        side_effect=[
+            httpx.Response(
+                200, json=search_page([f"MLB{index}" for index in range(50)], total=500)
+            ),
+            httpx.Response(200, json=search_page(["MLB50", "MLB51"], total=500)),
+        ]
+    )
+
+    item_ids = collector.search_item_ids("MLB1618", limit=52)
+
+    assert item_ids[:2] == ["MLB0", "MLB1"]
+    assert len(item_ids) == 52
+    first, second = (call.request.url.params for call in search.calls)
+    assert (first["sort"], first["limit"], first["offset"]) == ("sold_quantity_desc", "50", "0")
+    # segunda pagina pede apenas o que falta para o limite
+    assert (second["limit"], second["offset"]) == ("2", "50")
+    assert first["category"] == "MLB1618"
+
+
+@respx.mock
+def test_busca_para_quando_a_categoria_acaba(collector):
+    respx.post(f"{API_BASE}/oauth/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+    )
+    search = respx.get(f"{API_BASE}/sites/MLB/search").mock(
+        return_value=httpx.Response(200, json=search_page(["MLB1", "MLB2"], total=2))
+    )
+
+    assert collector.search_item_ids("MLB1618", limit=50) == ["MLB1", "MLB2"]
+    assert search.call_count == 1
+
+
+@respx.mock
+def test_sort_recusado_cai_para_relevance(collector):
+    respx.post(f"{API_BASE}/oauth/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+    )
+    search = respx.get(f"{API_BASE}/sites/MLB/search").mock(
+        side_effect=[
+            httpx.Response(400, json={"message": "invalid sort"}),
+            httpx.Response(200, json=search_page(["MLB1"], total=1, sort="relevance")),
+        ]
+    )
+
+    assert collector.search_item_ids("MLB1618", limit=10) == ["MLB1"]
+    assert [call.request.url.params["sort"] for call in search.calls] == [
+        "sold_quantity_desc",
+        "relevance",
+    ]
+    # a proxima categoria ja nasce com a ordenacao aceita
+    assert collector.search_sort == "relevance"
+
+
+@respx.mock
+def test_sort_ignorado_silenciosamente_e_registrado(collector, caplog):
+    respx.post(f"{API_BASE}/oauth/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+    )
+    respx.get(f"{API_BASE}/sites/MLB/search").mock(
+        return_value=httpx.Response(200, json=search_page(["MLB1"], total=1, sort="relevance"))
+    )
+
+    with caplog.at_level("WARNING"):
+        assert collector.search_item_ids("MLB1618", limit=10) == ["MLB1"]
+
+    assert "ignorou sort=sold_quantity_desc" in caplog.text
+    assert collector.search_sort == "relevance"
+
+
+@respx.mock
+def test_collect_category_usa_a_busca_e_dispensa_o_catalogo(collector):
+    respx.post(f"{API_BASE}/oauth/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+    )
+    respx.get(f"{API_BASE}/sites/MLB/search").mock(
+        return_value=httpx.Response(200, json=search_page(["MLB123"], total=1))
+    )
+    highlights = respx.get(f"{API_BASE}/highlights/MLB/category/MLB1618").mock(
+        return_value=httpx.Response(200, json={"content": []})
+    )
+    respx.get(f"{API_BASE}/items").mock(
+        return_value=httpx.Response(200, json=[{"code": 200, "body": ITEM_BODY}])
+    )
+    respx.get(f"{API_BASE}/items/MLB123/description").mock(
+        return_value=httpx.Response(200, json={"plain_text": "Panela antiaderente"})
+    )
+    respx.get(f"{API_BASE}/reviews/item/MLB123").mock(
+        return_value=httpx.Response(200, json={"reviews": []})
+    )
+
+    products = collector.collect_category("MLB1618", limit=10)
+
+    assert [product.id for product in products] == ["MLB123"]
+    assert not highlights.called
+
+
+@respx.mock
+def test_busca_vazia_cai_para_highlights(collector):
+    respx.post(f"{API_BASE}/oauth/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+    )
+    respx.get(f"{API_BASE}/sites/MLB/search").mock(
+        return_value=httpx.Response(200, json=search_page([], total=0))
+    )
+    highlights = respx.get(f"{API_BASE}/highlights/MLB/category/MLB1618").mock(
+        return_value=httpx.Response(200, json={"content": [{"id": "MLB123", "type": "ITEM"}]})
+    )
+    respx.get(f"{API_BASE}/items").mock(
+        return_value=httpx.Response(200, json=[{"code": 200, "body": ITEM_BODY}])
+    )
+    respx.get(f"{API_BASE}/items/MLB123/description").mock(return_value=httpx.Response(404))
+    respx.get(f"{API_BASE}/reviews/item/MLB123").mock(return_value=httpx.Response(404))
+
+    assert [p.id for p in collector.collect_category("MLB1618", limit=10)] == ["MLB123"]
+    assert highlights.called
 
 
 @respx.mock
@@ -143,6 +282,9 @@ def test_limite_para_de_resolver_o_catalogo_ao_atingir_o_maximo(collector):
 def test_collect_category_de_catalogo_traz_o_produto_completo(collector):
     respx.post(f"{API_BASE}/oauth/token").mock(
         return_value=httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+    )
+    respx.get(f"{API_BASE}/sites/MLB/search").mock(
+        return_value=httpx.Response(200, json=search_page([], total=0))
     )
     respx.get(f"{API_BASE}/highlights/MLB/category/MLB1618").mock(
         return_value=httpx.Response(200, json={"content": [{"id": "MLB20001", "type": "PRODUCT"}]})
