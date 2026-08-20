@@ -6,9 +6,15 @@ import respx
 
 from mlshorts.collectors.base import CollectorError
 from mlshorts.collectors.mercadolivre_api import API_BASE, MercadoLivreAPICollector
+from mlshorts.collectors.ml_auth import MercadoLivreAuth
 from mlshorts.config import Secrets
 
-SECRETS = Secrets(ml_client_id="id", ml_client_secret="secret", ml_site_id="MLB")
+SECRETS = Secrets(
+    ml_client_id="id",
+    ml_client_secret="secret",
+    ml_refresh_token="refresh-1",
+    ml_site_id="MLB",
+)
 
 ITEM_BODY = {
     "id": "MLB123",
@@ -42,7 +48,12 @@ def search_page(ids: list[str], total: int, sort: str = "sold_quantity_desc") ->
 @pytest.fixture
 def collector():
     with httpx.Client(base_url=API_BASE) as client:
-        yield MercadoLivreAPICollector(secrets=SECRETS, client=client)
+        yield MercadoLivreAPICollector(
+            secrets=SECRETS,
+            client=client,
+            # nao deixa o teste reescrever o .env do projeto na rotacao do refresh token
+            auth=MercadoLivreAuth(SECRETS, persist_refresh_token=False),
+        )
 
 
 @respx.mock

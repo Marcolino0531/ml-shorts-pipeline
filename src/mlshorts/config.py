@@ -23,6 +23,9 @@ class Secrets(BaseSettings):
 
     ml_client_id: str | None = None
     ml_client_secret: str | None = None
+    # a API do ML exige token de usuario: o refresh token vem do consentimento e rotaciona
+    # a cada renovacao (o codigo regrava o novo valor no .env)
+    ml_refresh_token: str | None = None
     ml_site_id: str = "MLB"
     ml_affiliate_tag: str | None = None
 
@@ -41,7 +44,7 @@ class Secrets(BaseSettings):
 
     @property
     def has_ml_credentials(self) -> bool:
-        return bool(self.ml_client_id and self.ml_client_secret)
+        return bool(self.ml_client_id and self.ml_client_secret and self.ml_refresh_token)
 
     @property
     def has_youtube_credentials(self) -> bool:

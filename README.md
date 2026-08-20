@@ -78,7 +78,8 @@ cp .env.example .env             # preencha as credenciais
 
 | Variável | Onde conseguir | Obrigatória? |
 | --- | --- | --- |
-| `ML_CLIENT_ID`, `ML_CLIENT_SECRET` | [DevCenter do Mercado Livre](https://developers.mercadolivre.com.br/devcenter) → *Criar aplicação* (redirect URI pode ser `https://localhost`) | Não — sem elas a coleta cai no scraping por Playwright |
+| `ML_CLIENT_ID`, `ML_CLIENT_SECRET` | [DevCenter do Mercado Livre](https://developers.mercadolivre.com.br/devcenter) → *Criar aplicação* (habilite os fluxos *Authorization Code* e *Refresh Token*) | Não — sem elas a coleta cai no scraping por Playwright |
+| `ML_REFRESH_TOKEN` | gere uma vez logado como dono da conta: abra `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=<ML_CLIENT_ID>&redirect_uri=<sua_redirect_uri>`, troque o `code` recebido por token (`POST /oauth/token` com `grant_type=authorization_code`) e copie o `refresh_token` | Sim, junto com as duas acima — `client_credentials` não tem acesso aos endpoints de itens/busca |
 | `ML_SITE_ID` | `MLB` para o Brasil | Sim (já vem preenchida) |
 | `ML_AFFILIATE_TAG` | [Programa de Afiliados do ML](https://www.mercadolivre.com.br/afiliados/hub) → seu identificador de rastreio | Sim, para monetizar (sem ela o link vai limpo) |
 | `OPENAI_API_KEY` | https://platform.openai.com/api-keys | Sim, se `SCRIPT_PROVIDER=openai` |
@@ -89,6 +90,11 @@ cp .env.example .env             # preencha as credenciais
 | `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET` | [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → habilite a *YouTube Data API v3* → credencial OAuth do tipo **TVs and Limited Input** ou **Desktop app** | Só para postar no YouTube |
 | `YOUTUBE_REFRESH_TOKEN` | gere uma vez no [OAuth Playground](https://developers.google.com/oauthplayground) (engrenagem → *Use your own OAuth credentials*) com o escopo `https://www.googleapis.com/auth/youtube.upload` e copie o *refresh token* | Só para postar no YouTube |
 | `TIKTOK_ACCESS_TOKEN` | [TikTok for Developers](https://developers.tiktok.com/) → app com o produto *Content Posting API* e escopo `video.publish` | Só para postar no TikTok |
+
+O `ML_REFRESH_TOKEN` é o único valor que o próprio pipeline reescreve: cada renovação invalida o
+token usado, então o novo é gravado de volta no `.env` (com `chmod 600`) ao final da troca. Por
+isso, não exporte `ML_REFRESH_TOKEN` como variável de ambiente do sistema — o valor exportado
+venceria o `.env` e a coleta seguinte falharia com token inválido (o log avisa se isso acontecer).
 
 O `.env` nunca é comitado (está no `.gitignore`); na VPS deixe-o como `chmod 600 .env`.
 Enquanto as credenciais das redes não estiverem prontas, mantenha `publishing.platforms: [dry-run]`
@@ -293,7 +299,8 @@ publishing:
 
 ## Estratégia de coleta
 
-1. **API oficial** (`MercadoLivreAPICollector`): autentica por `client_credentials` e lê
+1. **API oficial** (`MercadoLivreAPICollector`): autentica com `grant_type=refresh_token`
+   (token de usuário — `client_credentials` não abre os endpoints de item/busca) e lê
    `/sites/{site}/search?category=<id>&sort=sold_quantity_desc`, que devolve **anúncios**
    direto, paginando até o limite da categoria. Se a API recusar (400) ou ignorar esse `sort`,
    o coletor cai para a ordenação padrão e registra no log quais `available_sorts` existem.

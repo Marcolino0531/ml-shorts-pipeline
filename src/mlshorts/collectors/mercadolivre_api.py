@@ -1,6 +1,6 @@
 """Coletor baseado na API oficial do Mercado Livre.
 
-Fluxo: token (client_credentials) -> busca da categoria ordenada por mais vendidos ->
+Fluxo: token de usuario (refresh_token) -> busca da categoria ordenada por mais vendidos ->
 multiget de itens -> descricao + reviews de cada item. `/highlights` fica como fallback.
 """
 
@@ -8,13 +8,12 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 from typing import Any
 
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
-from mlshorts.collectors.base import CollectorError
+from mlshorts.collectors.ml_auth import MercadoLivreAuth
 from mlshorts.collectors.stats import summarize_listings
 from mlshorts.config import Secrets, get_secrets
 from mlshorts.models import Product, ProductImage, Review
@@ -22,7 +21,6 @@ from mlshorts.models import Product, ProductImage, Review
 logger = logging.getLogger(__name__)
 
 API_BASE = "https://api.mercadolibre.com"
-TOKEN_URL = f"{API_BASE}/oauth/token"
 ITEM_BATCH_SIZE = 20
 SEARCH_PAGE_SIZE = 50
 # a busca publica nao pagina alem de 1000 resultados
@@ -66,15 +64,15 @@ class MercadoLivreAPICollector:
         max_reviews: int = 8,
         max_images: int = 5,
         search_sort: str = SOLD_SEARCH_SORT,
+        auth: MercadoLivreAuth | None = None,
     ) -> None:
         self.secrets = secrets or get_secrets()
         self._client = client or httpx.Client(base_url=API_BASE, timeout=20.0)
         self._owns_client = client is None
+        self.auth = auth or MercadoLivreAuth(self.secrets)
         self.max_reviews = max_reviews
         self.max_images = max_images
         self.search_sort = search_sort
-        self._token: str | None = None
-        self._token_expires_at: float = 0.0
 
     def __enter__(self) -> MercadoLivreAPICollector:
         return self
@@ -89,28 +87,7 @@ class MercadoLivreAPICollector:
     # ------------------------------------------------------------------ auth
 
     def _access_token(self) -> str:
-        if self._token and time.time() < self._token_expires_at:
-            return self._token
-        if not self.secrets.has_ml_credentials:
-            raise CollectorError(
-                "ML_CLIENT_ID/ML_CLIENT_SECRET ausentes: use o coletor de scraping."
-            )
-        response = self._client.post(
-            TOKEN_URL,
-            data={
-                "grant_type": "client_credentials",
-                "client_id": self.secrets.ml_client_id,
-                "client_secret": self.secrets.ml_client_secret,
-            },
-            headers={"Accept": "application/json"},
-        )
-        if response.status_code >= 400:
-            raise CollectorError(f"Falha ao autenticar no Mercado Livre: {response.text}")
-        payload = response.json()
-        self._token = str(payload["access_token"])
-        # margem de 60s para evitar corrida com a expiracao
-        self._token_expires_at = time.time() + float(payload.get("expires_in", 21600)) - 60
-        return self._token
+        return self.auth.access_token(self._client)
 
     @_retry_http
     def _get(self, path: str, **params: Any) -> Any:
