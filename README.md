@@ -176,6 +176,15 @@ O `ScriptGenerator` valida a presença dos quatro blocos, reordena as cenas, est
 (`palavras / words_per_second`, default 2.6 para pt-BR) e, se passar de 45s, pede uma reescrita
 mais curta antes de desistir. A saída vai para `data/out/scripts-<timestamp>.json`.
 
+**Acentuação**: os prompts são escritos com a acentuação correta do português e pedem
+explicitamente acento e cedilha nas falas — o LLM imita o estilo do que recebe, e um prompt sem
+acento devolvia falas como "aco"/"nao", que iam erradas para a narração da ElevenLabs e para a
+legenda queimada no vídeo. Nada no pipeline remove acentos do roteiro: o JSON é gravado com
+`ensure_ascii=False` e o `.ass` das legendas em UTF-8 (a remoção de acentos existe apenas em
+`collectors/ml_categories.py`, para comparar nomes de categoria do breadcrumb). O
+`scripts/smoke_pipeline.sh` confere as palavras acentuadas no roteiro, na narração e na legenda.
+Os logs do código são escritos sem acento por convenção do repositório — isso não afeta o roteiro.
+
 ## Vídeo (`video`)
 
 ```bash

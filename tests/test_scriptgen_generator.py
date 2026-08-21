@@ -108,7 +108,7 @@ def test_prompt_do_usuario_traz_dados_reais_do_produto(product_factory):
 
     _, user_prompt = provider.prompts[0]
     assert "Fone Bluetooth" in user_prompt
-    assert "4.8" in user_prompt and "320 avaliacoes" in user_prompt
+    assert "4.8" in user_prompt and "320 avaliações" in user_prompt
     assert "Unidades vendidas: 1500" in user_prompt
     assert "Marca: JBL" in user_prompt
 
