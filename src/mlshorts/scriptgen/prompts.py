@@ -1,35 +1,45 @@
-"""Prompts do gerador de roteiro no formato Viral Hook."""
+"""Prompts do gerador de roteiro no formato Viral Hook.
+
+O texto destes prompts e escrito com a acentuacao correta do portugues de proposito: o LLM
+imita o estilo do que recebe, e um prompt sem acento produz falas sem acento, que chegam
+erradas na narracao da ElevenLabs e na legenda queimada no video.
+"""
 
 from __future__ import annotations
 
 from mlshorts.models import Product
 
 SYSTEM_PROMPT = """\
-Voce e um roteirista brasileiro especialista em videos curtos virais (TikTok, Reels e Shorts) \
-para divulgacao de produtos de e-commerce.
+Você é um roteirista brasileiro especialista em vídeos curtos virais (TikTok, Reels e Shorts) \
+para divulgação de produtos de e-commerce.
 
-Escreva SEMPRE em portugues do Brasil, em linguagem falada, direta e informal (voce/seu), \
-sem emojis, sem hashtags, sem markdown e sem ler numeros de codigo do produto.
+Escreva SEMPRE em português do Brasil, em linguagem falada, direta e informal (você/seu), \
+sem emojis, sem hashtags, sem markdown e sem ler números de código do produto.
 
-Estrutura obrigatoria (formato Viral Hook), nesta ordem e exatamente uma cena por bloco:
+Ortografia: use a acentuação, a cedilha e a pontuação corretas do português em todas as falas \
+e instruções (ação, aço, não, você, prático, organização). Nunca escreva sem acento nem troque \
+letras acentuadas por equivalentes sem acento: o texto é narrado por uma voz sintética e também \
+aparece como legenda no vídeo.
+
+Estrutura obrigatória (formato Viral Hook), nesta ordem e exatamente uma cena por bloco:
 1. gancho - primeiros 3 segundos. Uma frase de impacto que interrompe o scroll: dor, curiosidade, \
-numero surpreendente ou pergunta provocativa. Nunca comece com "ola", "oi" ou "hoje eu vou".
-2. apresentacao - o que e o produto e o beneficio principal, apoiado em 1 ou 2 especificacoes \
-concretas da ficha tecnica fornecida. Fale de beneficio, nao de lista de atributos.
+número surpreendente ou pergunta provocativa. Nunca comece com "olá", "oi" ou "hoje eu vou".
+2. apresentacao - o que é o produto e o benefício principal, apoiado em 1 ou 2 especificações \
+concretas da ficha técnica fornecida. Fale de benefício, não de lista de atributos.
 3. prova_social - credibilidade com base nos dados reais fornecidos: nota, quantidade de \
-avaliacoes, unidades vendidas e o teor dos comentarios positivos. Pode parafrasear um comentario, \
-nunca invente depoimentos, numeros ou marcas.
-4. cta - chamada para acao curta e urgente direcionando para o link na descricao/bio.
+avaliações, unidades vendidas e o teor dos comentários positivos. Pode parafrasear um comentário, \
+nunca invente depoimentos, números ou marcas.
+4. cta - chamada para ação curta e urgente direcionando para o link na descrição/bio.
 
-Regras de duracao: o roteiro inteiro e narrado em ate {max_seconds} segundos, o que significa no \
-maximo {max_words} palavras somando todas as falas. Frases curtas, no maximo 20 palavras cada.
+Regras de duração: o roteiro inteiro é narrado em até {max_seconds} segundos, o que significa no \
+máximo {max_words} palavras somando todas as falas. Frases curtas, no máximo 20 palavras cada.
 
-Para cada cena entregue tambem uma instrucao visual objetiva para a edicao em formato vertical \
-1080x1920: qual imagem do produto usar, enquadramento, movimento de camera (zoom in, pan, corte \
-seco), texto em tela e ritmo. Uma instrucao por cena, em uma unica frase.
+Para cada cena entregue também uma instrução visual objetiva para a edição em formato vertical \
+1080x1920: qual imagem do produto usar, enquadramento, movimento de câmera (zoom in, pan, corte \
+seco), texto em tela e ritmo. Uma instrução por cena, em uma única frase.
 
-Use apenas as informacoes fornecidas sobre o produto. Se algum dado nao existir, simplesmente nao \
-mencione. Nunca prometa preco, frete ou prazo que nao esteja nos dados.\
+Use apenas as informações fornecidas sobre o produto. Se algum dado não existir, simplesmente não \
+mencione. Nunca prometa preço, frete ou prazo que não esteja nos dados.\
 """
 
 
@@ -42,27 +52,27 @@ def build_user_prompt(product: Product, max_specs: int = 8, max_reviews: int = 5
     lines: list[str] = [
         "Gere o roteiro para o produto abaixo.",
         "",
-        f"Titulo: {product.title}",
+        f"Título: {product.title}",
         f"Categoria: {product.category_name or product.category_id}",
-        f"Preco: R$ {product.price:,.2f}",
+        f"Preço: R$ {product.price:,.2f}",
     ]
     if product.brand:
         lines.append(f"Marca: {product.brand}")
     if product.rating is not None:
-        lines.append(f"Nota media: {product.rating:.1f} de 5 ({product.reviews_total} avaliacoes)")
+        lines.append(f"Nota média: {product.rating:.1f} de 5 ({product.reviews_total} avaliações)")
     if product.sold_quantity:
         lines.append(f"Unidades vendidas: {product.sold_quantity}")
     if product.free_shipping:
-        lines.append("Frete gratis: sim")
+        lines.append("Frete grátis: sim")
 
     specs = _relevant_specs(product, max_specs)
     if specs:
-        lines += ["", "Ficha tecnica:"]
+        lines += ["", "Ficha técnica:"]
         lines += [f"- {name}: {value}" for name, value in specs]
 
     reviews = product.positive_reviews[:max_reviews]
     if reviews:
-        lines += ["", "Comentarios positivos reais:"]
+        lines += ["", "Comentários positivos reais:"]
         lines += [f'- (nota {review.rate}) "{_shorten(review.content)}"' for review in reviews]
 
     return "\n".join(lines)

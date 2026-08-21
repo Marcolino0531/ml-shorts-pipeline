@@ -85,9 +85,10 @@ class ScriptGenerator:
     def _shorten_instruction(self, scenes: list[Scene]) -> str:
         total = sum(scene.word_count for scene in scenes)
         return (
-            f"A versao anterior tinha {total} palavras e ficou longa demais. "
-            f"Reescreva o roteiro inteiro com no maximo {self.max_words} palavras somando as "
-            "quatro falas, mantendo o gancho forte e a mesma estrutura."
+            f"A versão anterior tinha {total} palavras e ficou longa demais. "
+            f"Reescreva o roteiro inteiro com no máximo {self.max_words} palavras somando as "
+            "quatro falas, mantendo o gancho forte, a mesma estrutura e a acentuação correta "
+            "do português."
         )
 
     def _parse_scenes(self, payload: dict[str, Any]) -> list[Scene]:

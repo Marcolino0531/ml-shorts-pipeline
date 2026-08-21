@@ -7,7 +7,7 @@ from typing import Any
 from mlshorts.models import SceneRole
 
 TOOL_NAME = "gerar_roteiro"
-TOOL_DESCRIPTION = "Devolve o roteiro do video curto dividido nas cenas do formato Viral Hook."
+TOOL_DESCRIPTION = "Devolve o roteiro do vídeo curto dividido nas cenas do formato Viral Hook."
 SCENE_ROLES: list[str] = [role.value for role in SceneRole]
 
 SCRIPT_JSON_SCHEMA: dict[str, Any] = {
@@ -31,11 +31,14 @@ SCRIPT_JSON_SCHEMA: dict[str, Any] = {
                     },
                     "fala_narrador": {
                         "type": "string",
-                        "description": "Texto exato narrado nesta cena, em portugues do Brasil.",
+                        "description": (
+                            "Texto exato narrado nesta cena, em português do Brasil, "
+                            "com acentuação e cedilha corretas."
+                        ),
                     },
                     "instrucao_visual": {
                         "type": "string",
-                        "description": "Instrucao de edicao vertical 1080x1920 para esta cena.",
+                        "description": "Instrução de edição vertical 1080x1920 para esta cena.",
                     },
                 },
             },

@@ -40,11 +40,13 @@ from mlshorts.video import VideoRenderer
 
 STAMP = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 NICHE = "Smoke"
+# palavras acentuadas conferidas no roteiro salvo, na narracao e na legenda queimada
+ACENTOS = ("aço", "não", "organização")
 FALAS = {
-    SceneRole.GANCHO: "Esse fone custa menos de duzentos reais e tem nota quatro e oito.",
-    SceneRole.APRESENTACAO: "Bluetooth cinco ponto tres, cancelamento de ruido e quarenta horas.",
-    SceneRole.PROVA_SOCIAL: "Mais de novecentas unidades vendidas e cento e vinte avaliacoes.",
-    SceneRole.CTA: "O link com o cupom esta na descricao deste video.",
+    SceneRole.GANCHO: "Esse suporte de aço não custa nem duzentos reais e tem nota quatro e oito.",
+    SceneRole.APRESENTACAO: "Bluetooth cinco ponto três, cancelamento de ruído e quarenta horas.",
+    SceneRole.PROVA_SOCIAL: "Mais de novecentas unidades vendidas e cento e vinte avaliações.",
+    SceneRole.CTA: "O link da organização completa está na descrição deste vídeo.",
 }
 
 
@@ -113,7 +115,11 @@ class StubTTS:
     voice_id = "smoke-voice"
     model_id = "eleven_multilingual_v2"
 
+    def __init__(self) -> None:
+        self.textos: list[str] = []
+
     def synthesize(self, text: str, output_path: Path) -> Path:
+        self.textos.append(text)
         # ~0.4s por palavra: aproxima o ritmo real da narracao em pt-BR
         seconds = max(round(len(text.split()) * 0.4, 2), 1.0)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -147,11 +153,14 @@ def run(settings: Settings, paths: Paths) -> list[tuple[str, str]]:
         json.dumps([script.model_dump(mode="json", by_alias=True)], ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    _require_acentos(" ".join(scene.narration for scene in script.scenes), "roteiro")
     results.append(
         ("script", f"{len(script.scenes)} cenas - {script.estimated_duration_seconds}s estimados")
     )
 
-    track = NarrationGenerator(StubTTS(), settings.tts).generate(script, paths.audio)
+    tts = StubTTS()
+    track = NarrationGenerator(tts, settings.tts).generate(script, paths.audio)
+    _require_acentos(" ".join(tts.textos), "narracao")
     results.append(
         ("tts", f"{len(track.scenes)} audios - {track.total_duration_seconds:.2f}s medidos")
     )
@@ -162,6 +171,7 @@ def run(settings: Settings, paths: Paths) -> list[tuple[str, str]]:
     width, height, duration = _probe(output)
     if (width, height) != (settings.video.width, settings.video.height):
         raise SystemExit(f"Render saiu em {width}x{height}, esperado 1080x1920")
+    _require_acentos(output.with_suffix(".ass").read_text(encoding="utf-8"), "legenda")
     results.append(
         ("render", f"{width}x{height} - {duration:.2f}s - {output.stat().st_size // 1024}KB")
     )
@@ -183,6 +193,13 @@ def run(settings: Settings, paths: Paths) -> list[tuple[str, str]]:
 
     results.append(("total", f"{time.perf_counter() - started:.1f}s"))
     return results
+
+
+def _require_acentos(texto: str, etapa: str) -> None:
+    """Garante que a acentuacao do roteiro sobreviveu a etapa."""
+    faltando = [palavra for palavra in ACENTOS if palavra not in texto]
+    if faltando:
+        raise SystemExit(f"Acentuacao perdida na etapa {etapa}: {', '.join(faltando)}")
 
 
 def _probe(video: Path) -> tuple[int, int, float]:
