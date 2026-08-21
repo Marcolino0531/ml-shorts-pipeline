@@ -20,7 +20,9 @@ collector:
 
 filters:
   min_rating: 4.5
-  min_reviews: 20
+  # a vitrine /ofertas mostra a nota e as unidades vendidas, mas nao o total de avaliacoes;
+  # suba este valor apenas quando a coleta voltar a vir da API oficial
+  min_reviews: 0
   min_sold_quantity: 500
   # descarta produtos sem imagem em resolucao suficiente para 1080x1920
   min_image_width: 800

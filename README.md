@@ -6,7 +6,7 @@ Pipeline em Python para automatizar vídeos curtos (TikTok/Shorts) de produtos e
 
 | # | Etapa | Módulo | Status |
 |---|-------|--------|--------|
-| 1 | Coleta de produtos em alta (API oficial + fallback Playwright) | `mlshorts.collectors` | implementado |
+| 1 | Coleta de produtos em alta (API oficial + vitrine `/ofertas` via Playwright) | `mlshorts.collectors` | implementado |
 | 2 | Filtro (nota ≥ 4.5, volume de vendas) + download das imagens | `mlshorts.collectors.filters` / `.images` | implementado |
 | 3 | Roteiro de até 45s via OpenAI/Claude | `mlshorts.scriptgen` | implementado |
 | 4 | Narração via ElevenLabs (áudio por cena + duração exata) | `mlshorts.tts` | implementado |
@@ -25,7 +25,8 @@ src/mlshorts/
   collectors/
     base.py               protocolo ProductCollector + CollectorError
     mercadolivre_api.py   API oficial: token -> highlights -> itens -> descrição/reviews
-    mercadolivre_scraper.py  fallback Playwright (vitrine "Mais vendidos" + PDP)
+    mercadolivre_scraper.py  scraping Playwright da vitrine /ofertas (+ PDP quando abre)
+    ml_categories.py      nomes da categoria e das filhas, para filtrar as ofertas
     filters.py            regras de aprovação e ranking
     images.py             download das imagens em alta resolução
     service.py            orquestra coleta -> filtro -> imagens -> JSON em data/raw
@@ -70,7 +71,7 @@ tests/                    testes unitários (HTTP mockado com respx)
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-playwright install chromium      # apenas para o coletor de fallback
+playwright install chromium      # necessario para a coleta na vitrine /ofertas
 cp .env.example .env             # preencha as credenciais
 ```
 
@@ -315,10 +316,24 @@ publishing:
    `/reviews/item/{id}` (só notas ≥ 4, ordenadas por likes) e registra o resumo monetário da
    categoria (anúncios, unidades vendidas, ticket médio e faturamento estimado, somados em
    centavos por `collectors/stats.py`).
-2. **Fallback por scraping** (`MercadoLivreScraperCollector`): usado quando não há
-   credenciais ou a API falha. Navega em `/mais-vendidos/{categoria}`, abre cada PDP e
-   extrai nota, avaliações, ficha técnica, comentários e imagens (thumb `-I` convertida
-   para a variante `-F` em alta resolução).
+2. **Scraping da vitrine de ofertas** (`MercadoLivreScraperCollector`): usado quando não há
+   credenciais ou a API falha — hoje é a fonte que funciona de fato, porque `/items` e
+   `/sites/{site}/search` respondem **403** sem nível de parceiro aprovado. Navega em
+   `/ofertas?category=<id>&page=N` (rolando a página para disparar o carregamento dinâmico e
+   paginando até juntar `highlights_per_category` × 3 candidatas) e lê de cada card título,
+   preço, nota, unidades vendidas, imagem e link. Como a vitrine mistura categorias, além do
+   filtro `category=` da URL o coletor confere o caminho de categorias da página do anúncio
+   contra o nome da categoria e das filhas (`GET /categories/{id}`, endpoint público) e
+   descarta o que vier de fora. O id usado é o do **anúncio** (`wid=` do link), não o do
+   catálogo (`/p/MLB...`). A imagem do card (448 px) é trocada pela variante grande
+   (`D_NQ_NP_2X_...-F`, ~1080–1200 px) e medida no browser para alimentar
+   `filters.min_image_width`.
+
+   A página do anúncio costuma responder com a tela de segurança (captcha) quando o acesso
+   vem de IP de datacenter; nesse caso o coletor desiste do enriquecimento depois de três
+   bloqueios seguidos e segue apenas com os dados do card. Por isso `filters.min_reviews` vem
+   em `0` no `settings.yaml`: a vitrine mostra nota e unidades vendidas, mas não o total de
+   avaliações — o corte de qualidade fica com `min_rating` e `min_sold_quantity`.
 
 O `CollectionService` encadeia os dois: o primeiro coletor que devolver produtos vence.
 
