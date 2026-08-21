@@ -32,6 +32,7 @@ scriptgen:
   provider: openai
   model_openai: gpt-4o-mini
   model_anthropic: claude-3-5-sonnet-latest
+  # so vale para a OpenAI: os modelos Claude recusam temperature fora do padrao
   temperature: 0.8
   # ritmo medio de narracao em pt-BR, usado para estimar a duracao do roteiro
   words_per_second: 2.6

@@ -2,6 +2,9 @@
 
 OpenAI usa `response_format=json_schema` (JSON mode estrito); Anthropic usa tool calling com
 `tool_choice` forcado. Ambos devolvem o mesmo dicionario `{"cenas": [...]}`.
+
+Os modelos Claude mais novos recusam (400) `temperature` fora do padrao, entao o provider da
+Anthropic simplesmente nao envia o parametro; a criatividade do roteiro vem do prompt.
 """
 
 from __future__ import annotations
@@ -27,6 +30,8 @@ ANTHROPIC_VERSION = "2023-06-01"
 
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 DEFAULT_ANTHROPIC_MODEL = "claude-3-5-sonnet-latest"
+
+ANTHROPIC_DEFAULT_TEMPERATURE = 1.0
 
 
 class ScriptGenerationError(RuntimeError):
@@ -141,9 +146,8 @@ class AnthropicScriptProvider(_BaseProvider):
         super().__init__(api_key=api_key, model=model, **kwargs)
 
     def generate(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
-        payload = {
+        payload: dict[str, Any] = {
             "model": self.model,
-            "temperature": self.temperature,
             "max_tokens": self.max_tokens,
             "system": system_prompt,
             "messages": [{"role": "user", "content": user_prompt}],
@@ -156,6 +160,15 @@ class AnthropicScriptProvider(_BaseProvider):
             ],
             "tool_choice": {"type": "tool", "name": TOOL_NAME},
         }
+        if self.temperature == ANTHROPIC_DEFAULT_TEMPERATURE:
+            payload["temperature"] = self.temperature
+        else:
+            logger.debug(
+                "temperature=%s ignorada: %s so aceita o valor padrao (%s)",
+                self.temperature,
+                self.model,
+                ANTHROPIC_DEFAULT_TEMPERATURE,
+            )
         data = self._post(
             ANTHROPIC_URL,
             payload,
