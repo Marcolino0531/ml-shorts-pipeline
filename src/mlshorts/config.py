@@ -40,6 +40,8 @@ class Secrets(BaseSettings):
     youtube_client_id: str | None = None
     youtube_client_secret: str | None = None
     youtube_refresh_token: str | None = None
+    # opcional: le as estatisticas publicas do video sem depender do escopo do consentimento
+    youtube_api_key: str | None = None
     tiktok_access_token: str | None = None
 
     @property

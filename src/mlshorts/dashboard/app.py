@@ -6,7 +6,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from mlshorts.dashboard.data import DashboardData, load_dashboard_data
+from mlshorts.dashboard.data import PLACEHOLDER, DashboardData, VideoRow, load_dashboard_data
 from mlshorts.models import (
     Product,
     PublicationStatus,
@@ -158,6 +158,53 @@ def render_video(data: DashboardData) -> None:
         st.video(str(video))
 
 
+def render_publications(data: DashboardData) -> None:
+    st.subheader("Videos processados")
+    st.caption(
+        "Dados de publicacao e engajamento do proprio video. Cliques e vendas do link de "
+        "afiliado nao entram aqui: o Mercado Livre nao expoe isso de forma automatizada."
+    )
+    rows = data.video_rows()
+    if not rows:
+        st.info("Nenhum video processado ainda. Rode `mlshorts render`.")
+        return
+
+    st.dataframe([row.as_table_row() for row in rows], use_container_width=True, hide_index=True)
+
+    row = st.selectbox(
+        "Detalhe do video",
+        rows,
+        format_func=lambda entry: f"{entry.product_id} - {entry.status}",
+    )
+    if row is not None:
+        _render_publication_detail(row)
+
+
+def _render_publication_detail(row: VideoRow) -> None:
+    photo, info = st.columns([1, 3])
+    if row.image is not None and row.image.exists():
+        photo.image(str(row.image), width=180)
+    else:
+        photo.caption("Sem foto baixada")
+
+    info.markdown(f"**{row.product_title}**")
+    info.caption(f"ID {row.product_id} - {row.status}")
+    info.write(f"Publicado em: {row.published_at_display}")
+    info.write(f"Link de afiliado: {row.affiliate_link or PLACEHOLDER}")
+    for platform, url in (row.published_urls or {}).items():
+        info.write(f"{platform}: {url}")
+
+    metrics = st.columns(3)
+    metrics[0].metric("Views (YouTube)", row.views_display)
+    metrics[1].metric("Curtidas", row.likes_display)
+    metrics[2].metric("Comentarios", row.comments_display)
+
+    st.write("**Legenda usada**")
+    st.code(row.caption or PLACEHOLDER)
+    if row.video is not None and row.video.exists():
+        st.video(str(row.video))
+
+
 def render_queue(data: DashboardData) -> None:
     st.subheader("Fila de publicacao")
     config = data.settings.publishing
@@ -246,8 +293,15 @@ def main() -> None:
     data = load_dashboard_data()
     render_overview(data)
 
-    tabs = st.tabs(["Produtos", "Roteiros", "Audio", "Video", "Fila"])
-    renderers = (render_products, render_scripts, render_audio, render_video, render_queue)
+    tabs = st.tabs(["Publicacoes", "Produtos", "Roteiros", "Audio", "Video", "Fila"])
+    renderers = (
+        render_publications,
+        render_products,
+        render_scripts,
+        render_audio,
+        render_video,
+        render_queue,
+    )
     for tab, renderer in zip(tabs, renderers, strict=True):
         with tab:
             renderer(data)

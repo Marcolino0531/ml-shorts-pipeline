@@ -52,7 +52,8 @@ src/mlshorts/
     service.py            RenderService: um narration.json -> um data/video/<id>.mp4
   dashboard/
     data.py               DashboardData: le os artefatos de data/ e a fila (sem Streamlit)
-    app.py                painel com as abas Produtos/Roteiros/Audio/Video/Fila
+    youtube_stats.py      views/likes/comentarios em youtube/v3/videos?part=statistics
+    app.py                painel: Publicacoes/Produtos/Roteiros/Audio/Video/Fila
   storage/paths.py        convenção de diretórios em data/
 scripts/
   seed_demo_data.py       popula data/ com artefatos ficticios para ver o painel
@@ -90,6 +91,7 @@ cp .env.example .env             # preencha as credenciais
 | `ELEVENLABS_VOICE_ID` | https://elevenlabs.io/app/voice-library → botão **ID** da voz escolhida (ou preencha `tts.voice_id` no YAML) | Sim (narração) |
 | `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET` | [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → habilite a *YouTube Data API v3* → credencial OAuth do tipo **TVs and Limited Input** ou **Desktop app** | Só para postar no YouTube |
 | `YOUTUBE_REFRESH_TOKEN` | gere uma vez no [OAuth Playground](https://developers.google.com/oauthplayground) (engrenagem → *Use your own OAuth credentials*) com o escopo `https://www.googleapis.com/auth/youtube.upload` e copie o *refresh token* | Só para postar no YouTube |
+| `YOUTUBE_API_KEY` | [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → *Create credentials* → *API key* (mesmo projeto da Data API v3) | Opcional: estatísticas no dashboard |
 | `TIKTOK_ACCESS_TOKEN` | [TikTok for Developers](https://developers.tiktok.com/) → app com o produto *Content Posting API* e escopo `video.publish` | Só para postar no TikTok |
 
 O `ML_REFRESH_TOKEN` é o único valor que o próprio pipeline reescreve: cada renovação invalida o
@@ -200,10 +202,26 @@ pip install -e ".[dashboard]"   # ou ".[dev]"
 mlshorts dashboard
 ```
 
-Abas: **Produtos** (tabela da coleta, ficha técnica, comentários, imagens e indicadores de
-etapa concluída), **Roteiros** (cenas com fala e instrução visual), **Áudio** (`st.audio` por
-cena, com início e duração vindos do manifesto da narração), **Vídeo** (`st.video` quando o MP4
-da etapa do FFmpeg existir) e **Fila** (status, horário agendado, aprovação, publicação e erro).
+Abas: **Publicações** (uma linha por vídeo processado — veja abaixo), **Produtos** (tabela da
+coleta, ficha técnica, comentários, imagens e indicadores de etapa concluída), **Roteiros**
+(cenas com fala e instrução visual), **Áudio** (`st.audio` por cena, com início e duração vindos
+do manifesto da narração), **Vídeo** (`st.video` quando o MP4 da etapa do FFmpeg existir) e
+**Fila** (status, horário agendado, aprovação, publicação e erro).
+
+A aba **Publicações** consolida, para cada vídeo já processado: produto (nome, ID e foto
+principal), status (**rascunho** quando o MP4 existe mas não está na fila, **na fila de
+publicação** ou **publicado**), a legenda usada, o link de afiliado, a data de publicação e —
+para o que já foi ao ar no YouTube — visualizações, curtidas e comentários lidos em
+`youtube/v3/videos?part=statistics`. Vídeo não publicado ou chamada de estatísticas com falha
+aparecem como `--`, sem derrubar as outras linhas.
+
+A leitura das estatísticas usa a API key de `YOUTUBE_API_KEY`, quando presente, e cai no OAuth
+de publicação (`YOUTUBE_REFRESH_TOKEN`) caso contrário. Se o consentimento tiver apenas o escopo
+`youtube.upload`, a API pode responder 403 nessa consulta: nesse caso preencha `YOUTUBE_API_KEY`
+(as estatísticas de vídeo público não exigem OAuth) ou gere o refresh token também com
+`youtube.readonly`. **Não há** nenhum dado de cliques ou vendas do link de afiliado: o Mercado
+Livre não oferece forma automatizada permitida de obtê-los, então o painel fica restrito a dados
+de publicação e engajamento do próprio vídeo.
 
 O painel só **lê** `data/` mais a fila configurada em `publishing.queue_path` — nenhuma etapa é
 disparada por ele, exceto os botões **Aprovar** / **Cancelar** da fila. Com
