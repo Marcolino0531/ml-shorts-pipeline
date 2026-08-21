@@ -7,6 +7,7 @@ import pytest
 import respx
 
 from mlshorts.scriptgen.providers import (
+    ANTHROPIC_DEFAULT_TEMPERATURE,
     ANTHROPIC_URL,
     OPENAI_URL,
     AnthropicScriptProvider,
@@ -82,6 +83,49 @@ def test_anthropic_usa_tool_calling_forcado():
     assert sent["tool_choice"] == {"type": "tool", "name": TOOL_NAME}
     assert sent["system"] == "sistema"
     assert route.calls.last.request.headers["x-api-key"] == "sk-ant"
+
+
+@respx.mock
+def test_anthropic_nao_envia_temperature_customizada():
+    """Claude recusa (400) temperature fora do padrao; a do settings.yaml fica de fora."""
+    route = respx.post(ANTHROPIC_URL).mock(
+        return_value=httpx.Response(
+            200, json={"content": [{"type": "tool_use", "name": TOOL_NAME, "input": PAYLOAD}]}
+        )
+    )
+
+    AnthropicScriptProvider(api_key="sk-ant", temperature=0.8).generate("sistema", "usuario")
+
+    assert "temperature" not in json.loads(route.calls.last.request.content)
+
+
+@respx.mock
+def test_anthropic_envia_temperature_apenas_no_valor_padrao():
+    route = respx.post(ANTHROPIC_URL).mock(
+        return_value=httpx.Response(
+            200, json={"content": [{"type": "tool_use", "name": TOOL_NAME, "input": PAYLOAD}]}
+        )
+    )
+
+    AnthropicScriptProvider(api_key="sk-ant", temperature=ANTHROPIC_DEFAULT_TEMPERATURE).generate(
+        "sistema", "usuario"
+    )
+
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["temperature"] == ANTHROPIC_DEFAULT_TEMPERATURE
+
+
+@respx.mock
+def test_openai_continua_enviando_temperature():
+    route = respx.post(OPENAI_URL).mock(
+        return_value=httpx.Response(
+            200, json={"choices": [{"message": {"content": json.dumps(PAYLOAD)}}]}
+        )
+    )
+
+    OpenAIScriptProvider(api_key="sk-test", temperature=0.8).generate("sistema", "usuario")
+
+    assert json.loads(route.calls.last.request.content)["temperature"] == 0.8
 
 
 @respx.mock
