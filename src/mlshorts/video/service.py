@@ -39,10 +39,16 @@ class RenderService:
             settings.imagegen, secrets or get_secrets()
         )
 
-    def manifests(self, product_id: str | None = None) -> list[Path]:
+    def manifests(
+        self, product_id: str | None = None, product_ids: set[str] | None = None
+    ) -> list[Path]:
         """Prefere o manifesto ao lado dos audios: e o que tem os caminhos reais dos arquivos."""
         pattern = f"{product_id}/narration.json" if product_id else "*/narration.json"
-        return sorted(self.paths.audio.glob(pattern))
+        found = sorted(self.paths.audio.glob(pattern))
+        if product_ids is None:
+            return found
+        # sem escopo, o glob pega tambem os produtos de execucoes anteriores
+        return [path for path in found if path.parent.name in product_ids]
 
     def load_track(self, manifest: Path) -> ScriptAudio:
         return ScriptAudio.model_validate(json.loads(manifest.read_text(encoding="utf-8")))
@@ -100,12 +106,14 @@ class RenderService:
                 return found
         return []
 
-    def run(self, product_id: str | None = None) -> list[Path]:
+    def run(self, product_id: str | None = None, product_ids: set[str] | None = None) -> list[Path]:
         self.paths.ensure()
-        manifests = self.manifests(product_id)
+        manifests = self.manifests(product_id, product_ids=product_ids)
         if not manifests:
+            escopo = f" no escopo {', '.join(sorted(product_ids))}" if product_ids else ""
             raise FileNotFoundError(
-                f"Nenhum narration.json em {self.paths.audio}: rode `mlshorts narrate` antes."
+                f"Nenhum narration.json em {self.paths.audio}{escopo}: "
+                "rode `mlshorts narrate` antes."
             )
 
         rendered: list[Path] = []
