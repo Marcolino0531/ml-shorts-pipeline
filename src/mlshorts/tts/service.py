@@ -44,6 +44,7 @@ class NarrationGenerator:
                     index=index,
                     role=scene.role,
                     text=scene.narration,
+                    visual=scene.visual,
                     audio_path=str(path),
                     duration_seconds=duration,
                     start_seconds=round(cursor, 3),

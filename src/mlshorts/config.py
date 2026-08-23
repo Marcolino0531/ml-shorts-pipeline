@@ -104,6 +104,29 @@ class TTSConfig(BaseModel):
         return ".mp3" if self.output_format.startswith("mp3") else ".pcm"
 
 
+class ImageGenConfig(BaseModel):
+    """Imagem por cena na API de imagens da OpenAI, a partir do campo `instrucao_visual`."""
+
+    enabled: bool = True
+    model: str = "gpt-image-1-mini"
+    # low mantem o custo minimo; a imagem ainda cobre 1080x1920 com folga
+    quality: str = "low"
+    # 1024x1536 e o tamanho vertical suportado (2:3, recortado no 9:16 do video)
+    size: str = "1024x1536"
+    # o modelo de imagem responde melhor em ingles: traduz o visual antes de gerar
+    translate_prompts: bool = True
+    translation_model: str = "gpt-4o-mini"
+    style_prompt: str = (
+        "Vertical 9:16 cinematic still for a short-form product video, photorealistic, "
+        "sharp focus, dramatic lighting, shallow depth of field."
+    )
+    negative_prompt: str = "No text, no captions, no watermark, no logos, no borders."
+    max_prompt_chars: int = 900
+    # reaproveita o PNG ja gerado do bloco em vez de pagar outra geracao
+    reuse_existing: bool = True
+    timeout_seconds: float = 180.0
+
+
 class YouTubeConfig(BaseModel):
     """Upload pela YouTube Data API v3 (o formato vertical + #Shorts define o Shorts)."""
 
@@ -178,6 +201,8 @@ class VideoConfig(BaseModel):
     background_color: str = "black"
     # leve zoom por cena para o video nao ficar estatico
     zoom_per_scene: float = 0.08
+    # crossfade entre as imagens de duas cenas (0 desliga e usa corte seco)
+    transition_seconds: float = 0.3
     crf: int = 20
     preset: str = "medium"
     audio_bitrate: str = "192k"
@@ -197,6 +222,7 @@ class Settings(BaseModel):
     filters: FilterConfig = Field(default_factory=FilterConfig)
     scriptgen: ScriptGenConfig = Field(default_factory=ScriptGenConfig)
     tts: TTSConfig = Field(default_factory=TTSConfig)
+    imagegen: ImageGenConfig = Field(default_factory=ImageGenConfig)
     video: VideoConfig = Field(default_factory=VideoConfig)
     publishing: PublishingConfig = Field(default_factory=PublishingConfig)
 

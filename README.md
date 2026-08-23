@@ -10,7 +10,7 @@ Pipeline em Python para automatizar vídeos curtos (TikTok/Shorts) de produtos e
 | 2 | Filtro (nota ≥ 4.5, volume de vendas) + download das imagens | `mlshorts.collectors.filters` / `.images` | implementado |
 | 3 | Roteiro de até 45s via OpenAI/Claude | `mlshorts.scriptgen` | implementado |
 | 4 | Narração via ElevenLabs (áudio por cena + duração exata) | `mlshorts.tts` | implementado |
-| 5 | Montagem 1080x1920 com FFmpeg e legendas dinâmicas | `mlshorts.video` | implementado |
+| 5 | Imagem gerada por cena (OpenAI `gpt-image-1-mini`) + montagem 1080x1920 com FFmpeg e legendas dinâmicas | `mlshorts.video` | implementado |
 | 6 | Publicação com intervalo mínimo por nicho e fila agendada | `mlshorts.publish` | implementado |
 | 7 | Metadados (título, descrição, hashtags, link de afiliado) + post no YouTube/TikTok | `mlshorts.publish` | implementado |
 | — | Dashboard Streamlit de acompanhamento | `mlshorts.dashboard` | implementado |
@@ -48,6 +48,7 @@ src/mlshorts/
     publishers.py         build_publisher() + MultiPublisher (varias redes por post)
   video/
     captions.py           legendas dinamicas (.ass) com a minutagem do narration.json
+    scene_images.py       SceneImageGenerator: imagem por bloco a partir de instrucao_visual
     renderer.py           VideoRenderer: um comando FFmpeg (imagens + audios + legendas)
     service.py            RenderService: um narration.json -> um data/video/<id>.mp4
   dashboard/
@@ -84,7 +85,7 @@ cp .env.example .env             # preencha as credenciais
 | `ML_REFRESH_TOKEN` | gere uma vez logado como dono da conta: abra `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=<ML_CLIENT_ID>&redirect_uri=<sua_redirect_uri>`, troque o `code` recebido por token (`POST /oauth/token` com `grant_type=authorization_code`) e copie o `refresh_token` | Sim, junto com as duas acima — `client_credentials` não tem acesso aos endpoints de itens/busca |
 | `ML_SITE_ID` | `MLB` para o Brasil | Sim (já vem preenchida) |
 | `ML_AFFILIATE_TAG` | [Programa de Afiliados do ML](https://www.mercadolivre.com.br/afiliados/hub) → seu identificador de rastreio | Sim, para monetizar (sem ela o link vai limpo) |
-| `OPENAI_API_KEY` | https://platform.openai.com/api-keys | Sim, se `SCRIPT_PROVIDER=openai` |
+| `OPENAI_API_KEY` | https://platform.openai.com/api-keys | Sim, se `SCRIPT_PROVIDER=openai`; também usada na geração das imagens das cenas |
 | `ANTHROPIC_API_KEY` | https://console.anthropic.com/settings/keys | Sim, se `SCRIPT_PROVIDER=anthropic` |
 | `SCRIPT_PROVIDER` | `openai` ou `anthropic` | Sim |
 | `ELEVENLABS_API_KEY` | https://elevenlabs.io/app/settings/api-keys | Sim (narração) |
@@ -191,11 +192,24 @@ Os logs do código são escritos sem acento por convenção do repositório — 
 mlshorts render               # precisa de ffmpeg no PATH
 ```
 
+Antes do FFmpeg, cada bloco do roteiro (`gancho`, `apresentacao`, `prova_social`, `cta`) ganha uma
+imagem própria: o campo `instrucao_visual` da cena é traduzido para inglês (`gpt-4o-mini`, porque o
+modelo de imagem responde melhor nesse idioma), virá o prompt de `gpt-image-1-mini`
+(`quality: low`, `size: 1024x1536`) e o PNG é salvo em `data/images/gerado/<product_id>/<bloco>.png`.
+O PNG existente é reaproveitado nas renderizações seguintes, para não pagar a geração duas vezes.
+Se a geração de um bloco falhar (400, rede, chave sem crédito), **só aquele bloco** cai na foto real
+do produto e o vídeo continua. `mlshorts render --real-photos` (ou `imagegen.enabled: false`) desliga
+a etapa e volta a usar apenas as fotos baixadas.
+
 Um único comando FFmpeg por produto, montado a partir de `data/audio/<id>/narration.json`:
 
-- uma imagem de `data/images/<id>/` por cena (as imagens ciclam se houver menos que cenas; sem
-  imagem nenhuma, entra fundo sólido), cada uma cobrindo a fala **mais a pausa seguinte**,
-  enquadrada em 1080x1920 com `scale`+`pad` e um zoom lento (`zoompan`);
+- uma imagem por cena (a gerada do bloco ou, no fallback, uma foto de `data/images/<id>/` — as
+  fotos ciclam se houver menos que cenas e, sem foto nenhuma, entra fundo sólido), cada uma
+  cobrindo a fala **mais a pausa seguinte**, enquadrada em 1080x1920 com `scale`+`pad` e um zoom
+  lento (`zoompan`);
+- crossfade de `video.transition_seconds` (0.3s) na troca de imagem: cada cena renderiza esse tempo
+  a mais para o `xfade` não encurtar o vídeo, então a duração total e os offsets do áudio continuam
+  iguais aos do manifesto (`transition_seconds: 0` volta ao corte seco com `concat`);
 - os áudios entram nos offsets exatos do manifesto (`adelay` por cena + `amix`), então a imagem,
   a legenda e a narração não podem sair de sincronia;
 - legendas dinâmicas em blocos de 3 palavras (tempo proporcional ao número de palavras dentro da

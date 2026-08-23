@@ -255,11 +255,20 @@ def queue_list(
 def render(
     config: ConfigOption = None,
     product_id: ProductIdOption = None,
+    real_photos: Annotated[
+        bool,
+        typer.Option(
+            "--real-photos",
+            help="Usa as fotos baixadas do produto em vez de gerar as imagens das cenas.",
+        ),
+    ] = False,
     verbose: VerboseOption = False,
 ) -> None:
     """Monta o video vertical 1080x1920 com FFmpeg a partir do narration.json de cada produto."""
     setup_logging(logging.DEBUG if verbose else logging.INFO)
     settings = load_settings(config)
+    if real_photos:
+        settings.imagegen.enabled = False
     videos = RenderService(settings).run(product_id=product_id)
 
     table = Table(title=f"Videos {settings.video.width}x{settings.video.height}")
