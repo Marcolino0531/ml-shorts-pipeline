@@ -17,6 +17,8 @@ collector:
   max_reviews_per_product: 8
   # quantas imagens em alta resolucao baixar por produto
   max_images_per_product: 5
+  # nunca repetir uma oferta: descarta ids com roteiro, narracao, video ou publicacao anterior
+  skip_processed: true
 
 filters:
   min_rating: 4.5

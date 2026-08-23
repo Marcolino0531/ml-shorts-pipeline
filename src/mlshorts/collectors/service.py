@@ -9,6 +9,7 @@ from pathlib import Path
 
 from mlshorts.collectors.base import ProductCollector
 from mlshorts.collectors.filters import apply_filters
+from mlshorts.collectors.history import ProcessedProducts
 from mlshorts.collectors.images import download_product_images
 from mlshorts.collectors.mercadolivre_api import MercadoLivreAPICollector
 from mlshorts.collectors.mercadolivre_scraper import MercadoLivreScraperCollector
@@ -26,11 +27,15 @@ class CollectionService:
         paths: Paths | None = None,
         secrets: Secrets | None = None,
         collectors: list[ProductCollector] | None = None,
+        history: ProcessedProducts | None = None,
     ) -> None:
         self.settings = settings
         self.paths = paths or Paths()
         self.secrets = secrets or get_secrets()
         self.collectors = collectors or self._default_collectors()
+        self.history = history or ProcessedProducts(
+            paths=self.paths, publishing=settings.publishing
+        )
 
     def _default_collectors(self) -> list[ProductCollector]:
         """API oficial primeiro; scraping como fallback."""
@@ -56,11 +61,13 @@ class CollectionService:
 
     def collect(self, download_images: bool = True) -> list[Product]:
         self.paths.ensure()
+        used_ids = self.history.ids() if self.settings.collector.skip_processed else set()
         selected: list[Product] = []
         for category in self.settings.categories:
             raw_products = self._collect_with_fallback(category.id)
             for product in raw_products:
                 product.category_name = category.name
+            raw_products = self._drop_processed(raw_products, used_ids, category.id)
             approved = apply_filters(
                 raw_products,
                 self.settings.filters,
@@ -73,6 +80,8 @@ class CollectionService:
                 len(approved),
             )
             selected.extend(approved)
+            # dentro da mesma rodada, uma oferta aprovada em outra categoria tambem nao repete
+            used_ids.update(product.id for product in approved)
 
         if download_images:
             for product in selected:
@@ -80,6 +89,27 @@ class CollectionService:
 
         self._persist(selected)
         return selected
+
+    def _drop_processed(
+        self, products: list[Product], used_ids: set[str], category_id: str
+    ) -> list[Product]:
+        if not used_ids:
+            return products
+        unseen = [product for product in products if product.id not in used_ids]
+        repeated = len(products) - len(unseen)
+        if repeated:
+            logger.info(
+                "Categoria %s: %d produtos descartados por ja terem sido processados",
+                category_id,
+                repeated,
+            )
+        if products and not unseen:
+            logger.warning(
+                "Categoria %s: todas as %d ofertas ja foram usadas antes",
+                category_id,
+                len(products),
+            )
+        return unseen
 
     def _collect_with_fallback(self, category_id: str) -> list[Product]:
         errors: list[str] = []

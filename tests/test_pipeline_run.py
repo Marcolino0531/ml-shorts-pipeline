@@ -180,7 +180,7 @@ def test_rodada_completa_publica_o_video_desta_execucao(product, tmp_path):
 
 def test_coleta_sem_produtos_aprovados_para_a_rodada(tmp_path):
     steps = Steps([])
-    with pytest.raises(PipelineError, match="coleta sem produtos aprovados"):
+    with pytest.raises(PipelineError, match="coleta sem produtos novos aprovados"):
         build_pipeline(steps, tmp_path).run()
     assert steps.calls == ["collect"]
 
