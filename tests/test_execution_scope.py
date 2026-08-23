@@ -11,7 +11,7 @@ import yaml
 from typer.testing import CliRunner
 
 from mlshorts.cli import app
-from mlshorts.config import Settings
+from mlshorts.config import Secrets, Settings
 from mlshorts.models import (
     PublicationStatus,
     QueuedPublication,
@@ -21,7 +21,9 @@ from mlshorts.models import (
     ScriptAudio,
     VideoScript,
 )
+from mlshorts.publish import MetadataService
 from mlshorts.publish.store import build_store
+from mlshorts.scriptgen import ScriptGenerationService
 from mlshorts.storage.paths import Paths
 from mlshorts.storage.scope import current_product_ids
 from mlshorts.tts import NarrationService
@@ -38,6 +40,19 @@ class FakeRenderer:
         self.calls.append(track.product_id)
         output.write_bytes(b"mp4")
         return output
+
+
+class FakeLLMProvider:
+    name = "fake"
+    model = "fake-1"
+
+    def generate(self, system_prompt: str, user_prompt: str) -> dict[str, list[dict[str, str]]]:
+        return {
+            "cenas": [
+                {"bloco": bloco, "fala_narrador": "fala curta", "instrucao_visual": "zoom"}
+                for bloco in ("gancho", "apresentacao", "prova_social", "cta")
+            ]
+        }
 
 
 class FakeTTSProvider:
@@ -178,6 +193,77 @@ def test_narrate_ignora_roteiros_fora_do_escopo(paths):
 
     assert [track.product_id for track in tracks] == ["MLB_ATUAL"]
     assert not (paths.audio / "MLB_ANTIGO").exists()
+
+
+def test_render_sem_product_id_usa_o_escopo_da_coleta_atual(paths, monkeypatch):
+    """Sem --product-id o comando escopa na coleta atual, igual a `script` e `narrate`."""
+    write_products(paths, "20260101T000000Z", "MLB_ANTIGO")
+    write_products(paths, "20260102T000000Z", "MLB_ATUAL")
+    chamadas: list[tuple[str | None, set[str] | None]] = []
+
+    class SpyRenderService:
+        def __init__(self, settings: Settings) -> None:
+            self.settings = settings
+
+        def run(
+            self, product_id: str | None = None, product_ids: set[str] | None = None
+        ) -> list[Path]:
+            chamadas.append((product_id, product_ids))
+            video = paths.video / "MLB_ATUAL.mp4"
+            video.write_bytes(b"mp4")
+            return [video]
+
+    monkeypatch.setattr("mlshorts.cli.Paths", lambda *args, **kwargs: paths)
+    monkeypatch.setattr("mlshorts.cli.RenderService", SpyRenderService)
+
+    result = runner.invoke(app, ["render"])
+
+    assert result.exit_code == 0, result.output
+    assert chamadas == [(None, {"MLB_ATUAL"})]
+
+
+def test_render_sem_coleta_nao_processa_nada(paths, monkeypatch):
+    monkeypatch.setattr("mlshorts.cli.Paths", lambda *args, **kwargs: paths)
+
+    result = runner.invoke(app, ["render"])
+
+    assert result.exit_code != 0
+    assert "mlshorts collect" in result.output
+
+
+def test_scope_lista_os_ids_da_coleta_atual(paths, monkeypatch):
+    write_products(paths, "20260101T000000Z", "MLB_ANTIGO")
+    write_products(paths, "20260102T000000Z", "MLB_ATUAL", "MLB_ATUAL2")
+    monkeypatch.setattr("mlshorts.cli.Paths", lambda *args, **kwargs: paths)
+
+    result = runner.invoke(app, ["scope"])
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.split() == ["MLB_ATUAL", "MLB_ATUAL2"]
+
+
+def test_script_gera_roteiro_so_dos_produtos_do_escopo(paths):
+    write_products(paths, "20260102T000000Z", "MLB_ATUAL")
+    products = json.loads((paths.raw / "products-20260102T000000Z.json").read_text("utf-8"))
+    products.append({**products[0], "id": "MLB_ANTIGO"})
+    (paths.raw / "products-20260102T000000Z.json").write_text(
+        json.dumps(products), encoding="utf-8"
+    )
+    service = ScriptGenerationService(
+        Settings(), paths=paths, secrets=Secrets(), provider=FakeLLMProvider()
+    )
+
+    scripts = service.run(product_ids={"MLB_ATUAL"})
+
+    assert [item.product_id for item in scripts] == ["MLB_ATUAL"]
+
+
+def test_queue_add_infere_o_nicho_do_produto_coletado(paths):
+    write_products(paths, "20260102T000000Z", "MLB_ATUAL")
+    service = MetadataService(Settings().publishing, paths=paths)
+
+    assert service.niche_for("MLB_ATUAL") == "MLB1618"
+    assert service.niche_for("MLB_ANTIGO") is None
 
 
 def test_queue_add_nao_reenfileira_produto_que_ja_passou_pela_fila(tmp_path):

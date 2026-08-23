@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 
 YOUTUBE_TITLE_LIMIT = 100
 TIKTOK_CAPTION_LIMIT = 2200
+DEFAULT_NICHE = "geral"
+
+
+def niche_for(product: Product) -> str:
+    """Nicho da fila: a categoria do produto coletado (o mesmo criterio em toda etapa)."""
+    return product.category_name or product.category_id or DEFAULT_NICHE
 
 
 class MetadataBuilder:
@@ -108,6 +114,10 @@ class MetadataService:
             if entry.get("id") == product_id:
                 return Product.model_validate(entry)
         return None
+
+    def niche_for(self, product_id: str) -> str | None:
+        product = self.find_product(product_id)
+        return niche_for(product) if product else None
 
     def find_script(self, product_id: str) -> VideoScript | None:
         latest = self._latest(self.paths.out, "scripts-*.json")

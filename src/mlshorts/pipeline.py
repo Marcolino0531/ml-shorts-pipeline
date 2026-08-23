@@ -22,6 +22,7 @@ from mlshorts.models import (
     VideoScript,
 )
 from mlshorts.publish import MetadataService, PublicationScheduler, build_publisher
+from mlshorts.publish.metadata import niche_for
 from mlshorts.scriptgen import ScriptGenerationService
 from mlshorts.storage.paths import Paths
 from mlshorts.tts import NarrationService
@@ -30,8 +31,6 @@ from mlshorts.video import RenderService
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
-
-DEFAULT_NICHE = "geral"
 
 
 class PipelineError(RuntimeError):
@@ -98,9 +97,8 @@ class DailyPipeline:
         return products
 
     def write_scripts(self, products: list[Product]) -> list[VideoScript]:
-        scripts = self._step("roteiro", self.scriptgen.run)
         wanted = {product.id for product in products}
-        # o servico grava todos os roteiros do arquivo; aqui so importam os desta rodada
+        scripts = self._step("roteiro", lambda: self.scriptgen.run(product_ids=wanted))
         current = [script for script in scripts if script.product_id in wanted]
         if not current:
             raise PipelineError("nenhum roteiro gerado para os produtos desta coleta")
@@ -123,7 +121,7 @@ class DailyPipeline:
         raise PipelineError(f"{product_id} sem MP4: o render nao produziu o video desta rodada")
 
     def niche_for(self, product: Product) -> str:
-        return product.category_name or product.category_id or DEFAULT_NICHE
+        return niche_for(product)
 
     def publish(self, product: Product, video: Path) -> QueuedPublication:
         niche = self.niche_for(product)
