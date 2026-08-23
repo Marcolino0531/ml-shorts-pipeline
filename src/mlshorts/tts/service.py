@@ -106,12 +106,19 @@ class NarrationService:
         return [VideoScript.model_validate(entry) for entry in raw]
 
     def run(
-        self, scripts_file: Path | None = None, product_id: str | None = None
+        self,
+        scripts_file: Path | None = None,
+        product_id: str | None = None,
+        product_ids: set[str] | None = None,
     ) -> list[ScriptAudio]:
         self.paths.ensure()
         tracks: list[ScriptAudio] = []
         for script in self.load_scripts(scripts_file):
             if product_id and script.product_id != product_id:
+                continue
+            if product_ids is not None and script.product_id not in product_ids:
+                # roteiro de uma execucao anterior presente no mesmo arquivo
+                logger.debug("%s fora do escopo desta execucao: nao narrado", script.product_id)
                 continue
             try:
                 track = self.generator.generate(script, self.paths.audio)

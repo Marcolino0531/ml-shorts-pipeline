@@ -21,6 +21,8 @@ from mlshorts.models import PublicationStatus
 from mlshorts.pipeline import DailyPipeline, PipelineError
 from mlshorts.publish import MetadataService, PublicationScheduler, build_publisher
 from mlshorts.scriptgen import ScriptGenerationService
+from mlshorts.storage.paths import Paths
+from mlshorts.storage.scope import current_product_ids
 from mlshorts.tts import NarrationService
 from mlshorts.video import RenderService
 
@@ -50,6 +52,29 @@ ProductIdOption = Annotated[
 DryRunOption = Annotated[
     bool, typer.Option("--dry-run", help="Nao posta nas redes: apenas registra no log.")
 ]
+AllProductsOption = Annotated[
+    bool,
+    typer.Option(
+        "--all",
+        help="Reprocessa tambem os produtos de execucoes anteriores, nao so os da coleta atual.",
+    ),
+]
+
+
+def _scope(
+    all_products: bool, product_id: str | None, products_file: Path | None = None
+) -> set[str] | None:
+    """Escopo padrao de cada etapa: os ids da coleta desta execucao."""
+    if all_products:
+        return None
+    if product_id:
+        return {product_id}
+    try:
+        return current_product_ids(Paths(), products_file)
+    except (FileNotFoundError, ValueError) as exc:
+        raise typer.BadParameter(
+            f"{exc} Use --all para processar tudo o que existe em data/."
+        ) from exc
 
 
 @app.command()
@@ -120,12 +145,15 @@ def narrate(
     config: ConfigOption = None,
     scripts_file: ScriptsFileOption = None,
     product_id: ProductIdOption = None,
+    products_file: ProductsFileOption = None,
+    all_products: AllProductsOption = False,
     verbose: VerboseOption = False,
 ) -> None:
     """Gera a narracao (ElevenLabs) de cada cena e salva os audios em data/audio/."""
     setup_logging(logging.DEBUG if verbose else logging.INFO)
     settings = load_settings(config)
-    tracks = NarrationService(settings).run(scripts_file, product_id=product_id)
+    scope = _scope(all_products, product_id, products_file)
+    tracks = NarrationService(settings).run(scripts_file, product_id=product_id, product_ids=scope)
 
     for track in tracks:
         table = Table(title=f"{track.product_id} - {track.total_duration_seconds:.1f}s")
@@ -152,6 +180,10 @@ def queue_add(
     niche: Annotated[str, typer.Option("--niche", help="Nicho/categoria da conta.")],
     media: Annotated[Path, typer.Option("--media", help="Caminho do MP4 vertical.")],
     config: ConfigOption = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Enfileira de novo um produto que ja passou pela fila."),
+    ] = False,
     dry_run: DryRunOption = False,
     verbose: VerboseOption = False,
 ) -> None:
@@ -160,6 +192,13 @@ def queue_add(
     settings = load_settings(config)
     publisher = build_publisher(settings.publishing, dry_run=dry_run)
     scheduler = PublicationScheduler.from_settings(settings, publisher=publisher)
+    if not force:
+        already = [item for item in scheduler.store.list_all() if item.product_id == product_id]
+        if already:
+            status = ", ".join(sorted({item.status.value for item in already}))
+            raise typer.BadParameter(
+                f"{product_id} ja esta na fila ({status}): nao vou reenfileirar. Use --force."
+            )
     metadata = MetadataService(settings.publishing).build_for(product_id, niche, media_path=media)
     item = scheduler.submit(
         product_id=product_id, niche=niche, media_path=str(media), metadata=metadata
@@ -265,6 +304,8 @@ def queue_list(
 def render(
     config: ConfigOption = None,
     product_id: ProductIdOption = None,
+    products_file: ProductsFileOption = None,
+    all_products: AllProductsOption = False,
     real_photos: Annotated[
         bool,
         typer.Option(
@@ -279,7 +320,8 @@ def render(
     settings = load_settings(config)
     if real_photos:
         settings.imagegen.enabled = False
-    videos = RenderService(settings).run(product_id=product_id)
+    scope = _scope(all_products, product_id, products_file)
+    videos = RenderService(settings).run(product_id=product_id, product_ids=scope)
 
     table = Table(title=f"Videos {settings.video.width}x{settings.video.height}")
     table.add_column("Arquivo")

@@ -20,6 +20,7 @@ from mlshorts.scriptgen.providers import (
     ScriptGenerationError,
 )
 from mlshorts.storage.paths import Paths
+from mlshorts.storage.scope import latest_products_file
 
 logger = logging.getLogger(__name__)
 
@@ -132,12 +133,7 @@ class ScriptGenerationService:
         )
 
     def latest_products_file(self) -> Path:
-        files = sorted(self.paths.raw.glob("products-*.json"))
-        if not files:
-            raise FileNotFoundError(
-                f"Nenhum products-*.json em {self.paths.raw}: rode `mlshorts collect` antes."
-            )
-        return files[-1]
+        return latest_products_file(self.paths)
 
     def load_products(self, path: Path | None = None) -> list[Product]:
         source = path or self.latest_products_file()

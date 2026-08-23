@@ -134,13 +134,16 @@ mlshorts collect --include-processed       # aceita ofertas ja usadas em rodadas
 mlshorts script                            # roteiros a partir do ultimo data/raw/products-*.json
 mlshorts script --products-file data/raw/products-20260101T000000Z.json
 
-mlshorts narrate                           # narra o ultimo data/out/scripts-*.json
+mlshorts narrate                           # narra so os produtos da coleta atual
 mlshorts narrate --product-id MLB123 -v    # apenas um produto
+mlshorts narrate --all                     # tambem os roteiros de rodadas anteriores
 
 mlshorts render                            # monta os MP4 1080x1920 em data/video/
 mlshorts render --product-id MLB123 -v     # apenas um produto
+mlshorts render --all                      # tambem as narracoes de rodadas anteriores
 
 mlshorts queue-add --product-id MLB123 --niche Celulares --media data/video/MLB123.mp4
+mlshorts queue-add ... --force             # enfileira de novo um produto que ja passou pela fila
 mlshorts publish --process-queue           # cron: posta no YouTube/TikTok o que ja pode ir ao ar
 mlshorts publish --process-queue --dry-run # so registra no log, sem postar
 mlshorts queue-list --status pending
@@ -156,6 +159,14 @@ mlshorts run --log-file data/out/execucao.log --dry-run
 rodada com `exit 1` (nada de publicar vídeo pela metade) e só o MP4 renderizado nessa execução vai
 para a fila — mesmo que existam vídeos antigos em `data/video/`. O nicho da fila sai da categoria do
 produto coletado, e `--log-file` acrescenta o passo a passo de cada etapa ao arquivo indicado.
+
+Os comandos soltos seguem a mesma regra: `script`, `narrate` e `render` operam apenas sobre os ids
+do `data/raw/products-*.json` mais recente (a coleta desta execução), então os `scripts-*.json`,
+`data/audio/<id>/narration.json` e MP4 que ficaram de rodadas antigas não são reprocessados nem
+reenfileirados. Para reprocessar de propósito, use `--product-id` (um produto), `--all` (tudo o que
+existe em `data/`) ou `--products-file` (a coleta de outra data); `queue-add` recusa um produto que
+já esteja na fila ou publicado, a menos que venha `--force`. `scripts/pipeline_daily.sh` só delega
+para `mlshorts run`, sem laço próprio de `queue-add`.
 
 Cron sugerido (de hora em hora):
 
