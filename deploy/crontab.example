@@ -9,10 +9,11 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 APP_DIR=/root/ml-shorts-pipeline
 MAILTO=""
 
-# ---------------------------------------------------------------- coleta (12h)
-# 06:00 e 18:00: coleta produtos em alta, gera roteiro, narra e renderiza o video,
-# deixando o MP4 pronto em data/video/ para aprovacao no dashboard.
-0 6,18 * * * cd $APP_DIR && ./scripts/pipeline_daily.sh >> data/out/cron-pipeline.log 2>&1
+# ------------------------------------------------------- rodada completa (2x/dia)
+# 15:30 e 22:30 UTC = 12:30 e 19:30 em Sao Paulo (UTC-3). Se o servidor estiver com o
+# fuso America/Sao_Paulo, use `30 12,19 * * *`.
+# A rodada faz coleta -> roteiro -> narracao -> render -> publicacao e para na primeira falha.
+30 15,22 * * * cd $APP_DIR && ./scripts/pipeline_daily.sh >> data/out/cron-pipeline.log 2>&1
 
 # ------------------------------------------------------- fila de publicacao (1h)
 # De hora em hora, mas quem decide se algo vai ao ar e o `publishing.min_interval_hours`

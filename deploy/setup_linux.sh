@@ -75,7 +75,7 @@ Pronto. Proximos passos:
        crontab -e   # e cole o conteudo de deploy/crontab.example
        $SUDO cp deploy/systemd/*.service deploy/systemd/*.timer /etc/systemd/system/
        $SUDO systemctl daemon-reload
-       $SUDO systemctl enable --now mlshorts-collect.timer mlshorts-publish.timer
+       $SUDO systemctl enable --now mlshorts-pipeline.timer mlshorts-publish.timer
   4. Dashboard:
        $SUDO cp deploy/systemd/mlshorts-dashboard.service /etc/systemd/system/
        $SUDO systemctl enable --now mlshorts-dashboard
