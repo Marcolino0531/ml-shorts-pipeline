@@ -131,9 +131,47 @@ def test_comando_ffmpeg_sincroniza_audio_e_forca_vertical(tmp_path):
     assert "adelay=delays=3250:all=1" in filters
     assert "amix=inputs=2:normalize=0" in filters
     assert "scale=1080:1920" in filters
-    assert "concat=n=2:v=1:a=0" in filters
     assert "subtitles=" in filters
     assert command[-1] == str(output)
+
+
+def test_crossfade_entre_cenas_preserva_a_duracao_total(tmp_path):
+    track = make_track(tmp_path)
+    image = tmp_path / "produto.jpg"
+    image.write_bytes(b"img")
+
+    command = VideoRenderer().build_command(track, [image], tmp_path / "a.mp4", tmp_path / "a.ass")
+    filters = command[command.index("-filter_complex") + 1]
+
+    # o crossfade comeca na fronteira das cenas (3.25s) e cada cena rende 0.3s a mais,
+    # para o xfade nao encurtar o video e dessincronizar os audios do manifesto
+    assert "xfade=transition=fade:duration=0.3:offset=3.25[vcat]" in filters
+    assert "concat=" not in filters
+    durations = [command[index + 1] for index, arg in enumerate(command) if arg == "-t"]
+    assert durations == ["3.55", "4.0"]
+    assert sum(float(value) for value in durations) - 0.3 == pytest.approx(
+        track.total_duration_seconds
+    )
+
+
+def test_transicao_desligada_volta_para_o_corte_seco(tmp_path):
+    track = make_track(tmp_path)
+
+    command = VideoRenderer(VideoConfig(transition_seconds=0.0)).build_command(
+        track, [], tmp_path / "a.mp4", tmp_path / "a.ass"
+    )
+    filters = command[command.index("-filter_complex") + 1]
+
+    assert "concat=n=2:v=1:a=0" in filters
+    assert "xfade" not in filters
+
+
+def test_crossfade_nao_passa_da_metade_da_cena_mais_curta(tmp_path):
+    track = make_track(tmp_path, durations=(0.4, 3.0), pause=0.0)
+
+    renderer = VideoRenderer(VideoConfig(transition_seconds=0.3))
+
+    assert renderer.transition_seconds(renderer.scene_durations(track)) == 0.2
 
 
 def test_sem_imagens_usa_fundo_solido(tmp_path):
@@ -192,10 +230,10 @@ class FakeRenderer:
     """Substitui o FFmpeg nos testes do servico."""
 
     def __init__(self) -> None:
-        self.calls: list[tuple[str, int]] = []
+        self.calls: list[tuple[str, list]] = []
 
     def render(self, track, images, output):
-        self.calls.append((track.product_id, len(images)))
+        self.calls.append((track.product_id, list(images)))
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_bytes(b"mp4")
         return output
@@ -218,13 +256,15 @@ def test_service_renderiza_todos_os_manifestos(tmp_path):
     write_manifest(paths, "MLB1", track)
     write_manifest(paths, "MLB2", track)
     (paths.images / "MLB1").mkdir(parents=True)
-    (paths.images / "MLB1" / "0.jpg").write_bytes(b"img")
+    photo = paths.images / "MLB1" / "0.jpg"
+    photo.write_bytes(b"img")
     renderer = FakeRenderer()
 
     videos = RenderService(Settings(), paths=paths, renderer=renderer).run()
 
     assert [path.name for path in videos] == ["MLB1.mp4", "MLB2.mp4"]
-    assert renderer.calls == [("MLB1", 1), ("MLB2", 0)]
+    # uma imagem por cena: a foto ciclada em MLB1 e fundo solido em MLB2, que nao tem foto
+    assert renderer.calls == [("MLB1", [photo, photo]), ("MLB2", [None, None])]
 
 
 def test_service_filtra_por_produto(tmp_path):

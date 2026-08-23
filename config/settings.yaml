@@ -51,6 +51,20 @@ tts:
   # silencio entre cenas, usado depois na montagem do video
   pause_between_scenes_seconds: 0.25
 
+imagegen:
+  # false renderiza com as fotos reais do produto, sem gastar a API de imagens
+  enabled: true
+  model: gpt-image-1-mini
+  # low = custo minimo por imagem
+  quality: low
+  # unico tamanho vertical do modelo (2:3), recortado no 9:16 do video
+  size: 1024x1536
+  # traduz o campo instrucao_visual do roteiro antes de gerar (o modelo responde melhor em ingles)
+  translate_prompts: true
+  translation_model: gpt-4o-mini
+  # reaproveita o PNG do bloco se ele ja existir em data/images/gerado/<produto>/
+  reuse_existing: true
+
 publishing:
   # intervalo minimo entre duas publicacoes do mesmo nicho
   min_interval_hours: 24
@@ -108,6 +122,8 @@ video:
   max_duration_seconds: 45
   background_color: black
   zoom_per_scene: 0.08
+  # crossfade na troca de imagem entre cenas (0 = corte seco)
+  transition_seconds: 0.3
   crf: 20
   preset: medium
   audio_bitrate: 192k

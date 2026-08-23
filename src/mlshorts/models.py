@@ -98,6 +98,8 @@ class SceneAudio(BaseModel):
     index: int
     role: SceneRole
     text: str
+    # descricao da cena vinda do roteiro, usada como prompt da imagem gerada
+    visual: str | None = None
     audio_path: str
     duration_seconds: float
     # inicio da cena na timeline final, somando as cenas anteriores e as pausas

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 
 from mlshorts.config import VideoConfig
@@ -36,10 +37,17 @@ class VideoRenderer:
             for index, scene in enumerate(track.scenes)
         ]
 
+    def transition_seconds(self, durations: Sequence[float]) -> float:
+        """O crossfade nao pode passar da metade da cena mais curta, senao o xfade estoura."""
+        if len(durations) < 2:
+            return 0.0
+        limit = min(durations) / 2
+        return round(max(min(self.config.transition_seconds, limit), 0.0), 3)
+
     def build_command(
         self,
         track: ScriptAudio,
-        images: list[Path],
+        images: Sequence[Path | None],
         output: Path,
         subtitles: Path,
     ) -> list[str]:
@@ -48,25 +56,32 @@ class VideoRenderer:
 
         config = self.config
         durations = self.scene_durations(track)
+        transition = self.transition_seconds(durations)
+        # cada cena (menos a ultima) rende o crossfade a mais, para o xfade nao encurtar o
+        # total e dessincronizar os audios, que continuam nos offsets do manifesto
+        last = len(durations) - 1
+        clips = [
+            round(duration + (0.0 if index == last else transition), 3)
+            for index, duration in enumerate(durations)
+        ]
         command = [self.binary, "-y", "-v", "error"]
 
-        for index, duration in enumerate(durations):
+        for index, clip in enumerate(clips):
             image = images[index % len(images)] if images else None
             if image is None:
-                command += ["-f", "lavfi", "-t", str(duration)]
+                command += ["-f", "lavfi", "-t", str(clip)]
                 command += [
                     "-i",
                     f"color=c={config.background_color}:s={config.width}x{config.height}:r={config.fps}",
                 ]
             else:
-                command += ["-loop", "1", "-t", str(duration), "-i", str(image)]
+                command += ["-loop", "1", "-t", str(clip), "-i", str(image)]
 
         for scene in track.scenes:
             command += ["-i", scene.audio_path]
 
-        filters = [self._scene_filter(index, duration) for index, duration in enumerate(durations)]
-        concat_inputs = "".join(f"[v{index}]" for index in range(len(durations)))
-        filters.append(f"{concat_inputs}concat=n={len(durations)}:v=1:a=0[vcat]")
+        filters = [self._scene_filter(index, clip) for index, clip in enumerate(clips)]
+        filters += self._join_filters(durations, transition)
         filters.append(f"[vcat]subtitles={_escape_path(subtitles)}[vout]")
 
         offset = len(durations)
@@ -103,6 +118,27 @@ class VideoRenderer:
         ]
         return command
 
+    def _join_filters(self, durations: Sequence[float], transition: float) -> list[str]:
+        """Crossfade encadeado nas fronteiras das cenas; sem transicao, corte seco no concat."""
+        if len(durations) == 1:
+            return ["[v0]null[vcat]"]
+        if transition <= 0:
+            inputs = "".join(f"[v{index}]" for index in range(len(durations)))
+            return [f"{inputs}concat=n={len(durations)}:v=1:a=0[vcat]"]
+
+        filters: list[str] = []
+        current = "[v0]"
+        boundary = 0.0
+        for index in range(1, len(durations)):
+            boundary = round(boundary + durations[index - 1], 3)
+            label = "[vcat]" if index == len(durations) - 1 else f"[x{index}]"
+            filters.append(
+                f"{current}[v{index}]xfade=transition=fade:duration={transition}"
+                f":offset={boundary}{label}"
+            )
+            current = label
+        return filters
+
     def _scene_filter(self, index: int, duration: float) -> str:
         """Enquadra a imagem no vertical (com fundo) e aplica um zoom lento durante a cena."""
         config = self.config
@@ -118,7 +154,7 @@ class VideoRenderer:
             f":d=1:s={config.width}x{config.height}:fps={config.fps}[v{index}]"
         )
 
-    def render(self, track: ScriptAudio, images: list[Path], output: Path) -> Path:
+    def render(self, track: ScriptAudio, images: Sequence[Path | None], output: Path) -> Path:
         if shutil.which(self.binary) is None:
             raise RenderError(f"{self.binary} nao encontrado no PATH")
 
