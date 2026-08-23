@@ -1,0 +1,15 @@
+[Unit]
+Description=Roda o pipeline completo do ml-shorts-pipeline duas vezes por dia
+
+[Timer]
+# 12:30 e 19:30 em Sao Paulo (UTC-3, sem horario de verao desde 2019).
+# O sufixo UTC fixa os horarios independente do fuso do servidor: nao precisa mexer aqui se
+# alguem rodar `timedatectl set-timezone`. Confira com `systemd-analyze calendar`.
+OnCalendar=*-*-* 15:30:00 UTC
+OnCalendar=*-*-* 22:30:00 UTC
+# se a VPS estava desligada no horario, roda ao ligar
+Persistent=true
+Unit=mlshorts-pipeline.service
+
+[Install]
+WantedBy=timers.target

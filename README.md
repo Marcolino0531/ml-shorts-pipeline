@@ -59,11 +59,11 @@ src/mlshorts/
 scripts/
   seed_demo_data.py       popula data/ com artefatos ficticios para ver o painel
   smoke_pipeline.py/.sh   health check: fluxo completo em modo simulado
-  pipeline_daily.sh       rodada de producao (collect -> script -> narrate -> render)
+  pipeline_daily.sh       atalho para `mlshorts run` (rodada completa, com log em arquivo)
 deploy/
   setup_linux.sh          provisiona a VPS Ubuntu (Python, FFmpeg, Playwright, venv)
   crontab.example         agendamento por cron
-  systemd/                services + timers (coleta 12h, fila 12h, dashboard)
+  systemd/                services + timers (rodada completa 2x/dia, fila, dashboard)
 data/{raw,images,audio,video,out}   artefatos por etapa (versionados apenas os .gitkeep)
 tests/                    testes unitários (HTTP mockado com respx)
 ```
@@ -146,7 +146,15 @@ mlshorts queue-list --status pending
 
 mlshorts dashboard                         # painel em http://localhost:8501
 mlshorts dashboard --port 8080 -c config/settings.yaml
+
+mlshorts run                               # rodada completa: collect -> script -> narrate -> render -> publish
+mlshorts run --log-file data/out/execucao.log --dry-run
 ```
+
+`mlshorts run` é o que o timer executa: as etapas rodam em sequência, a primeira falha encerra a
+rodada com `exit 1` (nada de publicar vídeo pela metade) e só o MP4 renderizado nessa execução vai
+para a fila — mesmo que existam vídeos antigos em `data/video/`. O nicho da fila sai da categoria do
+produto coletado, e `--log-file` acrescenta o passo a passo de cada etapa ao arquivo indicado.
 
 Cron sugerido (de hora em hora):
 
@@ -403,24 +411,39 @@ cd ~/ml-shorts-pipeline && nano .env         # veja a tabela em "Preenchendo o .
 ./scripts/smoke_pipeline.sh                  # deve terminar com "Pipeline saudavel"
 ```
 
-**3. Agendar (a cada 12h)** — escolha **um** dos dois:
+**3. Agendar (2x por dia)** — escolha **um** dos dois:
 
 ```bash
 # systemd (recomendado: log no journal, Persistent=true recupera execuções perdidas)
 cp deploy/systemd/*.service deploy/systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now mlshorts-collect.timer mlshorts-publish.timer
+systemctl enable --now mlshorts-pipeline.timer mlshorts-publish.timer
 systemctl list-timers 'mlshorts*'
-journalctl -u mlshorts-collect -f
+journalctl -u mlshorts-pipeline -f
 
 # ou cron
 crontab -e   # cole o conteúdo de deploy/crontab.example
 ```
 
-`mlshorts-collect.timer` roda `scripts/pipeline_daily.sh` às 06:00 e 18:00 (coleta → roteiro →
-narração → render → `queue-add` no nicho de `NICHE=`), e `mlshorts-publish.timer` roda
-`publish --process-queue` às 00:00 e 12:00. Quem decide de fato se um vídeo vai ao ar continua
-sendo o `publishing.min_interval_hours` + a fila, então rodar o timer com folga é seguro.
+`mlshorts-pipeline.timer` roda `mlshorts run` às **15:30 e 22:30 UTC** (= 12:30 e 19:30 em São
+Paulo, UTC-3; o sufixo `UTC` no `OnCalendar` mantém o horário mesmo que o fuso do servidor mude).
+Cada rodada faz coleta → roteiro → narração → render (com imagem por cena) → publicação, **para na
+primeira etapa que falhar** (`exit 1`, execução marcada como `failed` no systemd) e só publica o
+MP4 que ela mesma renderizou — nunca sobra de uma rodada anterior. O log de cada execução vai para
+`/var/log/mlshorts/execucao.log` (append; o diretório é criado pelo próprio serviço via
+`LogsDirectory=`), além do journal:
+
+```bash
+systemctl list-timers 'mlshorts*'          # próximos disparos
+systemctl start mlshorts-pipeline          # rodada manual, mesma configuração do timer
+tail -f /var/log/mlshorts/execucao.log     # o que aconteceu em cada etapa
+systemd-analyze calendar '*-*-* 15:30:00 UTC'
+```
+
+`mlshorts-publish.timer` (opcional) roda só `publish --process-queue`, para escoar itens que a
+rodada deixou agendados porque o `publishing.min_interval_hours` do nicho ainda não venceu ou
+porque `require_approval: true` espera o dashboard.
+
 Ajuste `User=` e os caminhos `/root/...` nos units se instalou em outro usuário/diretório.
 
 **4. Dashboard como serviço**

@@ -1,0 +1,22 @@
+[Unit]
+Description=ml-shorts-pipeline: rodada completa (coleta -> roteiro -> narracao -> render -> publicacao)
+Documentation=https://github.com/Marcolino0531/ml-shorts-pipeline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# ajuste User e os caminhos se o repositorio nao estiver em /root
+User=root
+WorkingDirectory=/root/ml-shorts-pipeline
+# o binario da .venv ja usa o interpretador do ambiente virtual: nao precisa de `activate`
+ExecStart=/root/ml-shorts-pipeline/.venv/bin/mlshorts run --log-file /var/log/mlshorts/execucao.log
+# cria /var/log/mlshorts com o dono do servico
+LogsDirectory=mlshorts
+LogsDirectoryMode=0750
+# render de video e pesado: nao competir com o dashboard
+Nice=10
+# coleta + LLM + TTS + render + upload: uma rodada folgada cabe em 1h
+TimeoutStartSec=3600
+StandardOutput=journal
+StandardError=journal

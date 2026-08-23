@@ -18,6 +18,7 @@ from mlshorts.config import load_settings
 from mlshorts.dashboard.data import CONFIG_ENV_VAR
 from mlshorts.logging_setup import setup_logging
 from mlshorts.models import PublicationStatus
+from mlshorts.pipeline import DailyPipeline, PipelineError
 from mlshorts.publish import MetadataService, PublicationScheduler, build_publisher
 from mlshorts.scriptgen import ScriptGenerationService
 from mlshorts.tts import NarrationService
@@ -278,6 +279,37 @@ def render(
         table.add_row(str(path), f"{path.stat().st_size / 1_048_576:.1f}")
     console.print(table)
     console.print(f"{len(videos)} videos renderizados.")
+
+
+@app.command("run")
+def run_pipeline(
+    config: ConfigOption = None,
+    log_file: Annotated[
+        Path | None,
+        typer.Option("--log-file", help="Arquivo de log da execucao (append)."),
+    ] = None,
+    dry_run: DryRunOption = False,
+    verbose: VerboseOption = False,
+) -> None:
+    """Rodada completa (coleta -> roteiro -> narracao -> render -> publicacao), usada no timer."""
+    setup_logging(logging.DEBUG if verbose else logging.INFO, log_file=log_file)
+    settings = load_settings(config)
+    try:
+        outcomes = DailyPipeline(settings, dry_run=dry_run).run()
+    except PipelineError as exc:
+        # a etapa que falhou ja esta no log; o codigo 1 marca a execucao como falha no systemd
+        logging.getLogger("mlshorts.pipeline").error("Rodada interrompida: %s", exc)
+        console.print(f"[red]Rodada interrompida[/red]: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    for outcome in outcomes:
+        urls = ", ".join(outcome.publication.published_urls.values()) or "-"
+        status = "green" if outcome.published else "yellow"
+        console.print(
+            f"[{status}]{outcome.publication.status.value}[/{status}] {outcome.product_id} "
+            f"({outcome.niche}) -> {urls}"
+        )
+    console.print(f"{len(outcomes)} produtos processados nesta rodada.")
 
 
 @app.command()
