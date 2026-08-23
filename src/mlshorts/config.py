@@ -65,6 +65,8 @@ class CollectorConfig(BaseModel):
     max_products_per_category: int = 5
     max_reviews_per_product: int = 8
     max_images_per_product: int = 5
+    # descarta ofertas que ja geraram roteiro, narracao, video ou publicacao antes
+    skip_processed: bool = True
 
 
 class FilterConfig(BaseModel):

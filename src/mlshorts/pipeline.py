@@ -90,7 +90,10 @@ class DailyPipeline:
     def collect(self) -> list[Product]:
         products = self._step("coleta", lambda: self.collection.collect())
         if not products:
-            raise PipelineError("coleta sem produtos aprovados: nada a renderizar nem publicar")
+            raise PipelineError(
+                "coleta sem produtos novos aprovados (ofertas ja processadas sao descartadas): "
+                "nada a renderizar nem publicar"
+            )
         logger.info("%d produtos aprovados: %s", len(products), ", ".join(p.id for p in products))
         return products
 

@@ -130,6 +130,7 @@ mlshorts categories                        # lista as categorias configuradas
 mlshorts collect                           # coleta todas as categorias do settings.yaml
 mlshorts collect --category MLB1051 -v     # apenas uma categoria, com log detalhado
 mlshorts collect --skip-images             # sem baixar imagens
+mlshorts collect --include-processed       # aceita ofertas ja usadas em rodadas anteriores
 mlshorts script                            # roteiros a partir do ultimo data/raw/products-*.json
 mlshorts script --products-file data/raw/products-20260101T000000Z.json
 
@@ -164,6 +165,12 @@ Cron sugerido (de hora em hora):
 
 Saída: `data/raw/products-<timestamp>.json` com os produtos aprovados (título, preço, nota,
 vendas, ficha técnica, comentários positivos) e as imagens em `data/images/<product_id>/`.
+
+A coleta nunca escolhe a mesma oferta duas vezes: antes dos filtros de qualidade ela descarta os
+ids que já apareceram em `data/out/scripts-*.json`, `data/out/narration-*.json`, `data/video/*.mp4`
+ou na fila de publicação (`data/out/publications.sqlite3`, em qualquer status). Não há tabela nova
+— o histórico é lido dos próprios artefatos de cada etapa. Para refazer um produto já usado, apague
+os artefatos dele ou rode com `--include-processed` (ou `collector.skip_processed: false`).
 
 ## Geração de roteiro (`scriptgen`)
 

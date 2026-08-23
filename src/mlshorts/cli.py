@@ -57,6 +57,13 @@ def collect(
     config: ConfigOption = None,
     category: CategoryOption = None,
     skip_images: SkipImagesOption = False,
+    include_processed: Annotated[
+        bool,
+        typer.Option(
+            "--include-processed",
+            help="Aceita produtos que o pipeline ja usou antes (por padrao sao descartados).",
+        ),
+    ] = False,
     verbose: VerboseOption = False,
 ) -> None:
     """Coleta produtos em alta, aplica os filtros e salva o JSON em data/raw."""
@@ -68,6 +75,8 @@ def collect(
         if not settings.categories:
             raise typer.BadParameter(f"Nenhuma categoria de {sorted(wanted)} esta no settings.yaml")
 
+    if include_processed:
+        settings.collector.skip_processed = False
     products = CollectionService(settings).collect(download_images=not skip_images)
 
     table = Table(title=f"{len(products)} produtos aprovados")
