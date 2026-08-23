@@ -62,7 +62,9 @@ AllProductsOption = Annotated[
 
 
 def _scope(
-    all_products: bool, product_id: str | None, products_file: Path | None = None
+    all_products: bool,
+    product_id: str | None,
+    products_file: Path | None = None,
 ) -> set[str] | None:
     """Escopo padrao de cada etapa: os ids da coleta desta execucao."""
     if all_products:
@@ -75,6 +77,14 @@ def _scope(
         raise typer.BadParameter(
             f"{exc} Use --all para processar tudo o que existe em data/."
         ) from exc
+
+
+def _fail_closed(step: str, produced: list[str], scope: set[str] | None) -> None:
+    """Etapa sem saida para o escopo pedido encerra o comando: nada de seguir com sobra antiga."""
+    if scope is None or produced:
+        return
+    console.print(f"[red]{step} nao produziu nada para {', '.join(sorted(scope))}[/red]")
+    raise typer.Exit(code=1)
 
 
 @app.command()
@@ -122,15 +132,29 @@ def collect(
 
 
 @app.command()
+def scope(
+    products_file: ProductsFileOption = None,
+) -> None:
+    """Imprime, um por linha, os ids da coleta atual (o `products-*.json` mais recente)."""
+    setup_logging(logging.WARNING)
+    for product_id in sorted(_scope(False, None, products_file) or set()):
+        print(product_id)
+
+
+@app.command()
 def script(
     config: ConfigOption = None,
     products_file: ProductsFileOption = None,
+    product_id: ProductIdOption = None,
+    all_products: AllProductsOption = False,
     verbose: VerboseOption = False,
 ) -> None:
     """Gera os roteiros Viral Hook a partir do ultimo JSON de produtos coletados."""
     setup_logging(logging.DEBUG if verbose else logging.INFO)
     settings = load_settings(config)
-    scripts = ScriptGenerationService(settings).run(products_file)
+    scope = _scope(all_products, product_id, products_file)
+    scripts = ScriptGenerationService(settings).run(products_file, product_ids=scope)
+    _fail_closed("roteiro", [item.product_id for item in scripts], scope)
 
     for video_script in scripts:
         console.rule(f"{video_script.product_id} - {video_script.estimated_duration_seconds}s")
@@ -172,13 +196,17 @@ def narrate(
             )
         console.print(table)
     console.print(f"{len(tracks)} narracoes geradas.")
+    _fail_closed("narracao", [track.product_id for track in tracks], scope)
 
 
 @app.command("queue-add")
 def queue_add(
     product_id: Annotated[str, typer.Option("--product-id", help="ID do produto no ML.")],
-    niche: Annotated[str, typer.Option("--niche", help="Nicho/categoria da conta.")],
     media: Annotated[Path, typer.Option("--media", help="Caminho do MP4 vertical.")],
+    niche: Annotated[
+        str | None,
+        typer.Option("--niche", help="Nicho/categoria da conta; padrao e a categoria do produto."),
+    ] = None,
     config: ConfigOption = None,
     force: Annotated[
         bool,
@@ -199,9 +227,15 @@ def queue_add(
             raise typer.BadParameter(
                 f"{product_id} ja esta na fila ({status}): nao vou reenfileirar. Use --force."
             )
-    metadata = MetadataService(settings.publishing).build_for(product_id, niche, media_path=media)
+    service = MetadataService(settings.publishing)
+    target_niche = niche or service.niche_for(product_id)
+    if target_niche is None:
+        raise typer.BadParameter(
+            f"{product_id} nao esta no ultimo products-*.json: informe --niche explicitamente."
+        )
+    metadata = service.build_for(product_id, target_niche, media_path=media)
     item = scheduler.submit(
-        product_id=product_id, niche=niche, media_path=str(media), metadata=metadata
+        product_id=product_id, niche=target_niche, media_path=str(media), metadata=metadata
     )
 
     if metadata is None:
@@ -214,7 +248,8 @@ def queue_add(
     else:
         console.print(
             f"[yellow]Agendado[/yellow]: {item.id} para {item.scheduled_for.isoformat()} "
-            f"(intervalo de {settings.publishing.interval_for(niche)}h no nicho {niche})"
+            f"(intervalo de {settings.publishing.interval_for(target_niche)}h "
+            f"no nicho {target_niche})"
         )
 
 
@@ -330,6 +365,7 @@ def render(
         table.add_row(str(path), f"{path.stat().st_size / 1_048_576:.1f}")
     console.print(table)
     console.print(f"{len(videos)} videos renderizados.")
+    _fail_closed("render", [path.stem for path in videos], scope)
 
 
 @app.command("run")

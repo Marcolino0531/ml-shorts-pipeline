@@ -140,10 +140,15 @@ class ScriptGenerationService:
         raw = json.loads(source.read_text(encoding="utf-8"))
         return [Product.model_validate(item) for item in raw]
 
-    def run(self, products_file: Path | None = None) -> list[VideoScript]:
+    def run(
+        self, products_file: Path | None = None, product_ids: set[str] | None = None
+    ) -> list[VideoScript]:
         self.paths.ensure()
         scripts: list[VideoScript] = []
         for product in self.load_products(products_file):
+            if product_ids is not None and product.id not in product_ids:
+                logger.debug("%s fora do escopo desta execucao: sem roteiro", product.id)
+                continue
             try:
                 scripts.append(self.generator.generate(product))
             except ScriptGenerationError as exc:

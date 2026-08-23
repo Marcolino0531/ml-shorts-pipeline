@@ -59,7 +59,7 @@ src/mlshorts/
 scripts/
   seed_demo_data.py       popula data/ com artefatos ficticios para ver o painel
   smoke_pipeline.py/.sh   health check: fluxo completo em modo simulado
-  pipeline_daily.sh       atalho para `mlshorts run` (rodada completa, com log em arquivo)
+  pipeline_daily.sh       rodada completa passando o id da coleta atual em cada etapa
 deploy/
   setup_linux.sh          provisiona a VPS Ubuntu (Python, FFmpeg, Playwright, venv)
   crontab.example         agendamento por cron
@@ -131,7 +131,9 @@ mlshorts collect                           # coleta todas as categorias do setti
 mlshorts collect --category MLB1051 -v     # apenas uma categoria, com log detalhado
 mlshorts collect --skip-images             # sem baixar imagens
 mlshorts collect --include-processed       # aceita ofertas ja usadas em rodadas anteriores
-mlshorts script                            # roteiros a partir do ultimo data/raw/products-*.json
+mlshorts scope                             # imprime os ids da coleta atual (um por linha)
+mlshorts script                            # roteiros dos produtos da coleta atual
+mlshorts script --product-id MLB123        # apenas um produto
 mlshorts script --products-file data/raw/products-20260101T000000Z.json
 
 mlshorts narrate                           # narra so os produtos da coleta atual
@@ -142,6 +144,7 @@ mlshorts render                            # monta os MP4 1080x1920 em data/vide
 mlshorts render --product-id MLB123 -v     # apenas um produto
 mlshorts render --all                      # tambem as narracoes de rodadas anteriores
 
+mlshorts queue-add --product-id MLB123 --media data/video/MLB123.mp4   # nicho vem da categoria
 mlshorts queue-add --product-id MLB123 --niche Celulares --media data/video/MLB123.mp4
 mlshorts queue-add ... --force             # enfileira de novo um produto que ja passou pela fila
 mlshorts publish --process-queue           # cron: posta no YouTube/TikTok o que ja pode ir ao ar
@@ -165,8 +168,13 @@ do `data/raw/products-*.json` mais recente (a coleta desta execução), então o
 `data/audio/<id>/narration.json` e MP4 que ficaram de rodadas antigas não são reprocessados nem
 reenfileirados. Para reprocessar de propósito, use `--product-id` (um produto), `--all` (tudo o que
 existe em `data/`) ou `--products-file` (a coleta de outra data); `queue-add` recusa um produto que
-já esteja na fila ou publicado, a menos que venha `--force`. `scripts/pipeline_daily.sh` só delega
-para `mlshorts run`, sem laço próprio de `queue-add`.
+já esteja na fila ou publicado, a menos que venha `--force`. Se a etapa não produzir nada para o
+escopo pedido, o comando sai com `exit 1` em vez de seguir com o artefato de outra rodada.
+
+`scripts/pipeline_daily.sh` (usado pelo cron) faz a mesma rodada de forma explícita: `collect`, lê os
+ids com `mlshorts scope` e passa `--product-id` em `script`, `narrate`, `render` e `queue-add`, um
+produto por vez. Com `PIPELINE_RUN=1` ele delega tudo ao `mlshorts run`, que é o caminho do timer
+systemd.
 
 Cron sugerido (de hora em hora):
 

@@ -88,7 +88,9 @@ class Steps:
         self._record("collect")
         return self.products
 
-    def run_scripts(self, products_file: Path | None = None) -> list[VideoScript]:
+    def run_scripts(
+        self, products_file: Path | None = None, product_ids: set[str] | None = None
+    ) -> list[VideoScript]:
         self._record("script")
         return self.scripts
 
