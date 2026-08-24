@@ -65,13 +65,14 @@ class MetadataBuilder:
         link = self.affiliate_link(str(product.permalink))
         lines = [product.title.strip()]
         if product.rating is not None:
-            lines.append(f"⭐ {product.rating:.1f} com {product.reviews_total} avaliacoes")
+            # sem total de avaliacoes: a vitrine nao informa, e "0 avaliacoes" seria falso
+            lines.append(f"⭐ {product.rating:.1f}")
         if product.sold_quantity:
             lines.append(f"🔥 {product.sold_quantity}+ vendidos no Mercado Livre")
         lines += ["", f"🛒 Compre aqui: {link}", ""]
         if hashtags:
             lines.append(" ".join(hashtags))
-        lines.append("\n#anuncio #publi - link de afiliado")
+        lines.append("\nLink de afiliado.")
 
         return VideoMetadata(
             product_id=product.id,
