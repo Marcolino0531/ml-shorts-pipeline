@@ -127,9 +127,33 @@ def test_metadados_tem_titulo_hashtags_e_link(tmp_path):
     assert metadata.hashtags == ["#celular", "#tecnologia", "#achadinhos", "#mercadolivre"]
     assert "matt_word=afiliado123" in metadata.affiliate_link
     assert metadata.affiliate_link in metadata.description
-    assert "⭐ 4.8 com 320 avaliacoes" in metadata.description
+    assert "⭐ 4.8" in metadata.description
     assert "5000+ vendidos" in metadata.description
-    assert "#anuncio" in metadata.description
+
+
+def test_descricao_sem_hashtag_de_publi_e_sem_mencao_a_avaliacoes():
+    """A nota vai sozinha (a vitrine nao traz avaliacoes) e as hashtags sao so as do nicho."""
+    builder = MetadataBuilder(make_config(), make_secrets())
+
+    metadata = builder.build(make_product(reviews_total=0), "Celulares")
+
+    assert metadata.description == "\n".join(
+        [
+            "Fone Bluetooth XYZ com cancelamento de ruido",
+            "⭐ 4.8",
+            "🔥 5000+ vendidos no Mercado Livre",
+            "",
+            f"🛒 Compre aqui: {metadata.affiliate_link}",
+            "",
+            "#celular #tecnologia #achadinhos #mercadolivre",
+            "",
+            "Link de afiliado.",
+        ]
+    )
+    assert "avaliac" not in metadata.description
+    assert "#anuncio" not in metadata.description
+    assert "#publi" not in metadata.description
+    assert metadata.title.endswith("#Shorts")
 
 
 def test_titulo_usa_o_gancho_do_roteiro_e_respeita_o_limite():
