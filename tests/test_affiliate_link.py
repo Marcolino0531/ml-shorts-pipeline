@@ -16,19 +16,31 @@ from mlshorts.publish.affiliate import AffiliateLinkBuilder, LinkCache, LinkPage
 PERMALINK = "https://produto.mercadolivre.com.br/MLB-123-pote-hermetico"
 SHORT_LINK = "https://mercadolivre.com/sec/2AbC3dE"
 GENERATOR_URL = "https://www.mercadolivre.com.br/afiliados/linkbuilder"
+LOGIN_URL = "https://www.mercadolivre.com/jms/mlb/lgz/login?go=afiliados"
 
 
 class FakePage:
     """Pagina de mentira com o campo, o botao e o link aparecendo depois de N leituras."""
 
-    def __init__(self, *, renders_before_link: int = 0, url: str = GENERATOR_URL) -> None:
-        self.url = url
+    def __init__(
+        self,
+        *,
+        renders_before_link: int = 0,
+        polls_before_field: int = 0,
+        waits_on_login: int = 0,
+        url: str = GENERATOR_URL,
+    ) -> None:
+        self.url = LOGIN_URL if waits_on_login else url
+        self.logged_in_url = url
         self.renders_before_link = renders_before_link
+        self.polls_before_field = polls_before_field
+        self.waits_on_login = waits_on_login
         self.visited: list[str] = []
         self.filled: list[tuple[str, str]] = []
         self.clicked: list[str] = []
         self.waits = 0
         self._reads = 0
+        self._field_polls = 0
 
     def goto(self, url: str) -> None:
         self.visited.append(url)
@@ -40,11 +52,15 @@ class FakePage:
         self.clicked.append(selector)
 
     def query_selector(self, selector: str) -> object | None:
-        present = {"textarea[name='urls']", "button:has-text('Gerar')"}
-        return object() if selector in present else None
+        if selector == "textarea[name='urls']":
+            self._field_polls += 1
+            return object() if self._field_polls > self.polls_before_field else None
+        return object() if selector == "button:has-text('Gerar')" else None
 
     def wait_for_timeout(self, timeout: float) -> None:
         self.waits += 1
+        if self.waits >= self.waits_on_login:
+            self.url = self.logged_in_url
 
     def content(self) -> str:
         self._reads += 1
@@ -153,6 +169,50 @@ def test_cache_evita_gerar_o_mesmo_link_duas_vezes(tmp_path: Path) -> None:
     assert builder.short_link(PERMALINK) == SHORT_LINK
     # cache lido do disco por uma instancia nova: nada de navegador
     assert LinkCache(Path(config.cache_path)).get(PERMALINK) == SHORT_LINK
+
+
+def test_login_espera_o_gerador_aparecer_e_nao_so_a_url(tmp_path: Path) -> None:
+    """`generator_url` nao casa com /lgz/login nem antes do login: quem manda e o campo na tela."""
+    builder = AffiliateLinkBuilder(make_config(tmp_path))
+    page = FakePage(polls_before_field=3)
+
+    field = builder.wait_for_generator(page, 5000, abort_on_login=False)
+
+    assert field == "textarea[name='urls']"
+    assert page.waits == 3
+
+
+def test_login_manual_espera_sair_da_tela_de_login(tmp_path: Path) -> None:
+    """A tela de login tem campos de texto que casam com os seletores: URL tambem conta."""
+    builder = AffiliateLinkBuilder(make_config(tmp_path))
+    page = FakePage(waits_on_login=4)
+
+    assert builder.wait_for_generator(page, 5000, abort_on_login=False)
+    assert page.waits == 4
+
+
+def test_reconhece_a_tela_de_login_com_url_ofuscada(tmp_path: Path) -> None:
+    """O ML manda para /jms/mlb/lgz/msl/login/<blob>, que nao casa com '/lgz/login'."""
+    page = FakePage(url="https://www.mercadolivre.com/jms/mlb/lgz/msl/login/H4sIAAAAAAAEA1VQ")
+    builder = AffiliateLinkBuilder(with_session(tmp_path), page_factory=factory_for(page))
+
+    assert builder.short_link(PERMALINK) is None
+
+
+def test_login_que_nunca_conclui_estoura_o_timeout(tmp_path: Path) -> None:
+    builder = AffiliateLinkBuilder(make_config(tmp_path))
+    page = FakePage(waits_on_login=10_000)
+
+    with pytest.raises(RuntimeError, match="campo de URL do gerador"):
+        builder.wait_for_generator(page, 1000, abort_on_login=False)
+
+
+def test_gerador_espera_a_pagina_carregar_antes_de_colar(tmp_path: Path) -> None:
+    builder = AffiliateLinkBuilder(make_config(tmp_path))
+    page = FakePage(polls_before_field=2)
+
+    assert builder.generate_on_page(page, PERMALINK) == SHORT_LINK
+    assert page.filled == [("textarea[name='urls']", PERMALINK)]
 
 
 def test_desabilitado_nao_tenta_a_central(tmp_path: Path) -> None:

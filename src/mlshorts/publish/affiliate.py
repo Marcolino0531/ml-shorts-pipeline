@@ -26,7 +26,8 @@ from mlshorts.config import AffiliateConfig
 logger = logging.getLogger(__name__)
 
 SHORT_LINK_RE = re.compile(r"https://(?:www\.)?mercadolivre\.com(?:\.br)?/sec/[A-Za-z0-9]+")
-LOGIN_URL_MARKER = "/lgz/login"
+# a jornada de login do ML tem varios caminhos sob /lgz/ (/lgz/login, /lgz/msl/login/<blob>...)
+LOGIN_URL_MARKERS = ("/lgz/", "/login")
 POLL_INTERVAL_MS = 500
 # rotulos que a Central usa no campo e no botao; o primeiro que existir na pagina e usado
 URL_FIELD_SELECTORS = (
@@ -155,10 +156,33 @@ class AffiliateLinkBuilder:
     def generate_on_page(self, page: LinkPage, permalink: str) -> str:
         """Cola o permalink no gerador e devolve o `mercadolivre.com/sec/...` da resposta."""
         page.goto(self.config.generator_url)
-        self._ensure_logged_in(page)
-        page.fill(_first_present(page, URL_FIELD_SELECTORS, "campo de URL"), permalink)
+        field = self.wait_for_generator(page, self.config.timeout_ms, abort_on_login=True)
+        page.fill(field, permalink)
         page.click(_first_present(page, GENERATE_BUTTON_SELECTORS, "botao de gerar"))
         return self._await_short_link(page)
+
+    def wait_for_generator(self, page: LinkPage, timeout_ms: int, *, abort_on_login: bool) -> str:
+        """Espera o gerador na tela: fora do login **e** com o campo de URL presente.
+
+        Nenhum dos dois sinais basta sozinho. A URL do gerador nao casa com `/lgz/login` nem
+        antes do login (e o redirecionamento ainda nem aconteceu quando a espera comeca), e a
+        propria tela de login tem campos de texto que casam com `URL_FIELD_SELECTORS`.
+
+        Com `abort_on_login`, cair no login e sessao expirada; sem ele (login manual), e so
+        esperar o usuario terminar.
+        """
+        waited = 0
+        while True:
+            if abort_on_login:
+                self._ensure_logged_in(page)
+            if not _is_login_url(page.url):
+                selector = _first_present_or_none(page, URL_FIELD_SELECTORS)
+                if selector is not None:
+                    return selector
+            if waited >= timeout_ms:
+                raise RuntimeError("campo de URL do gerador nao apareceu na Central de Afiliados")
+            page.wait_for_timeout(POLL_INTERVAL_MS)
+            waited += POLL_INTERVAL_MS
 
     def _await_short_link(self, page: LinkPage) -> str:
         """A Central preenche o link por JS depois do clique: le o HTML ate ele aparecer."""
@@ -175,7 +199,7 @@ class AffiliateLinkBuilder:
             waited += POLL_INTERVAL_MS
 
     def _ensure_logged_in(self, page: LinkPage) -> None:
-        if LOGIN_URL_MARKER in page.url:
+        if _is_login_url(page.url):
             raise SessionExpired(page.url)
 
     @contextmanager
@@ -204,19 +228,28 @@ class AffiliateLinkBuilder:
             context = browser.new_context(locale="pt-BR", viewport={"width": 1440, "height": 900})
             page = context.new_page()
             page.goto(self.config.generator_url)
-            page.wait_for_url(_logged_in_url, timeout=login_timeout_ms)
+            # a janela fica aberta esperando o login manual: o gerador na tela e o sinal de pronto
+            self.wait_for_generator(page, login_timeout_ms, abort_on_login=False)
             context.storage_state(path=str(target))
             context.close()
             browser.close()
         return target
 
 
-def _logged_in_url(url: str) -> bool:
-    return LOGIN_URL_MARKER not in url
+def _is_login_url(url: str) -> bool:
+    """A tela de login tambem tem campos de texto, entao ela precisa ser reconhecida pela URL."""
+    return any(marker in url for marker in LOGIN_URL_MARKERS)
 
 
-def _first_present(page: LinkPage, selectors: tuple[str, ...], what: str) -> str:
+def _first_present_or_none(page: LinkPage, selectors: tuple[str, ...]) -> str | None:
     for selector in selectors:
         if page.query_selector(selector) is not None:
             return selector
-    raise RuntimeError(f"{what} nao encontrado na Central de Afiliados")
+    return None
+
+
+def _first_present(page: LinkPage, selectors: tuple[str, ...], what: str) -> str:
+    selector = _first_present_or_none(page, selectors)
+    if selector is None:
+        raise RuntimeError(f"{what} nao encontrado na Central de Afiliados")
+    return selector
