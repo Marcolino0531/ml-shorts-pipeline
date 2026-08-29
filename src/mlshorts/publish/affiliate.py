@@ -32,18 +32,18 @@ SHORT_LINK_RE = re.compile(r"https://(?:www\.)?mercadolivre\.com(?:\.br)?/sec/[A
 LOGIN_URL_MARKERS = ("/lgz/", "/login")
 POLL_INTERVAL_MS = 500
 SESSION_SETTLE_MS = 2_000
-# rotulos que a Central usa no campo e no botao; o primeiro que existir na pagina e usado
+# o campo de URLs da Central e um textarea com o exemplo de link no placeholder; nada de
+# `input[type='text']` aqui, que casaria com a caixa de e-mail da tela de login
 URL_FIELD_SELECTORS = (
+    "textarea[placeholder*='mercadolivre.com.br']",
     "textarea[name='urls']",
     "textarea",
-    "input[name='url']",
-    "input[type='url']",
-    "input[type='text']",
 )
+# o botao "Gerar" so sai do desabilitado quando o campo tem texto: esperar o habilitado
+# tambem serve de sinal de que o React ja processou o `fill`
 GENERATE_BUTTON_SELECTORS = (
-    "button:has-text('Gerar')",
-    "button:has-text('Criar')",
-    "button[type='submit']",
+    "button:has-text('Gerar'):not([disabled])",
+    "button[type='submit']:not([disabled])",
 )
 
 
@@ -161,8 +161,20 @@ class AffiliateLinkBuilder:
         page.goto(self.config.generator_url)
         field = self.wait_for_generator(page, self.config.timeout_ms, abort_on_login=True)
         page.fill(field, permalink)
-        page.click(_first_present(page, GENERATE_BUTTON_SELECTORS, "botao de gerar"))
+        page.click(self._wait_present(page, GENERATE_BUTTON_SELECTORS, "botao de gerar"))
         return self._await_short_link(page)
+
+    def _wait_present(self, page: LinkPage, selectors: tuple[str, ...], what: str) -> str:
+        """Primeiro seletor que aparecer dentro de `timeout_ms`."""
+        waited = 0
+        while True:
+            selector = _while_navigating(lambda: _first_present_or_none(page, selectors), None)
+            if selector is not None:
+                return selector
+            if waited >= self.config.timeout_ms:
+                raise RuntimeError(f"{what} nao encontrado na Central de Afiliados")
+            page.wait_for_timeout(POLL_INTERVAL_MS)
+            waited += POLL_INTERVAL_MS
 
     def wait_for_generator(self, page: LinkPage, timeout_ms: int, *, abort_on_login: bool) -> str:
         """Espera o gerador na tela: fora do login **e** com o campo de URL presente.
@@ -266,10 +278,3 @@ def _first_present_or_none(page: LinkPage, selectors: tuple[str, ...]) -> str | 
         if page.query_selector(selector) is not None:
             return selector
     return None
-
-
-def _first_present(page: LinkPage, selectors: tuple[str, ...], what: str) -> str:
-    selector = _first_present_or_none(page, selectors)
-    if selector is None:
-        raise RuntimeError(f"{what} nao encontrado na Central de Afiliados")
-    return selector

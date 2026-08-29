@@ -15,7 +15,9 @@ from mlshorts.publish.affiliate import AffiliateLinkBuilder, LinkCache, LinkPage
 
 PERMALINK = "https://produto.mercadolivre.com.br/MLB-123-pote-hermetico"
 SHORT_LINK = "https://mercadolivre.com/sec/2AbC3dE"
-GENERATOR_URL = "https://www.mercadolivre.com.br/afiliados/linkbuilder"
+GENERATOR_URL = "https://www.mercadolivre.com.br/afiliados/linkbuilder#hub"
+FIELD = "textarea[placeholder*='mercadolivre.com.br']"
+BUTTON = "button:has-text('Gerar'):not([disabled])"
 LOGIN_URL = "https://www.mercadolivre.com/jms/mlb/lgz/login?go=afiliados"
 
 
@@ -27,6 +29,7 @@ class FakePage:
         *,
         renders_before_link: int = 0,
         polls_before_field: int = 0,
+        polls_before_button: int = 0,
         waits_on_login: int = 0,
         navigations: int = 0,
         url: str = GENERATOR_URL,
@@ -36,7 +39,9 @@ class FakePage:
         self.logged_in_url = url
         self.renders_before_link = renders_before_link
         self.polls_before_field = polls_before_field
+        self.polls_before_button = polls_before_button
         self.waits_on_login = waits_on_login
+        self._button_polls = 0
         self.visited: list[str] = []
         self.filled: list[tuple[str, str]] = []
         self.clicked: list[str] = []
@@ -63,10 +68,13 @@ class FakePage:
 
     def query_selector(self, selector: str) -> object | None:
         self._navigating()
-        if selector == "textarea[name='urls']":
+        if selector == FIELD:
             self._field_polls += 1
             return object() if self._field_polls > self.polls_before_field else None
-        return object() if selector == "button:has-text('Gerar')" else None
+        if selector != BUTTON:
+            return None
+        self._button_polls += 1
+        return object() if self._button_polls > self.polls_before_button else None
 
     def wait_for_timeout(self, timeout: float) -> None:
         self.waits += 1
@@ -114,8 +122,8 @@ def test_gera_link_curto_colando_o_permalink_no_campo(tmp_path: Path) -> None:
 
     assert short_link == SHORT_LINK
     assert page.visited == [GENERATOR_URL]
-    assert page.filled == [("textarea[name='urls']", PERMALINK)]
-    assert page.clicked == ["button:has-text('Gerar')"]
+    assert page.filled == [(FIELD, PERMALINK)]
+    assert page.clicked == [BUTTON]
     assert page.waits == 1
 
 
@@ -190,7 +198,7 @@ def test_login_espera_o_gerador_aparecer_e_nao_so_a_url(tmp_path: Path) -> None:
 
     field = builder.wait_for_generator(page, 5000, abort_on_login=False)
 
-    assert field == "textarea[name='urls']"
+    assert field == FIELD
     assert page.waits == 3
 
 
@@ -201,6 +209,23 @@ def test_login_manual_espera_sair_da_tela_de_login(tmp_path: Path) -> None:
 
     assert builder.wait_for_generator(page, 5000, abort_on_login=False)
     assert page.waits == 4
+
+
+def test_espera_o_botao_gerar_sair_do_desabilitado(tmp_path: Path) -> None:
+    """O botao fica cinza (sem casar com `:not([disabled])`) ate o React ver o texto colado."""
+    builder = AffiliateLinkBuilder(make_config(tmp_path))
+    page = FakePage(polls_before_button=2)
+
+    assert builder.generate_on_page(page, PERMALINK) == SHORT_LINK
+    assert page.clicked == [BUTTON]
+
+
+def test_botao_que_nunca_habilita_estoura_o_timeout(tmp_path: Path) -> None:
+    builder = AffiliateLinkBuilder(make_config(tmp_path, timeout_ms=1000))
+    page = FakePage(polls_before_button=1000)
+
+    with pytest.raises(RuntimeError, match="botao de gerar"):
+        builder.generate_on_page(page, PERMALINK)
 
 
 def test_navegacao_no_meio_da_checagem_nao_derruba_o_login(tmp_path: Path) -> None:
@@ -240,7 +265,7 @@ def test_gerador_espera_a_pagina_carregar_antes_de_colar(tmp_path: Path) -> None
     page = FakePage(polls_before_field=2)
 
     assert builder.generate_on_page(page, PERMALINK) == SHORT_LINK
-    assert page.filled == [("textarea[name='urls']", PERMALINK)]
+    assert page.filled == [(FIELD, PERMALINK)]
 
 
 def test_desabilitado_nao_tenta_a_central(tmp_path: Path) -> None:
