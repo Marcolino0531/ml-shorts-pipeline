@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from rich.console import Console
 from rich.table import Table
 
@@ -19,7 +20,12 @@ from mlshorts.dashboard.data import CONFIG_ENV_VAR
 from mlshorts.logging_setup import setup_logging
 from mlshorts.models import PublicationStatus
 from mlshorts.pipeline import DailyPipeline, PipelineError
-from mlshorts.publish import MetadataService, PublicationScheduler, build_publisher
+from mlshorts.publish import (
+    AffiliateLinkBuilder,
+    MetadataService,
+    PublicationScheduler,
+    build_publisher,
+)
 from mlshorts.scriptgen import ScriptGenerationService
 from mlshorts.storage.paths import Paths
 from mlshorts.storage.scope import current_product_ids
@@ -397,6 +403,38 @@ def run_pipeline(
             f"({outcome.niche}) -> {urls}"
         )
     console.print(f"{len(outcomes)} produtos processados nesta rodada.")
+
+
+@app.command("affiliate-login")
+def affiliate_login(
+    config: ConfigOption = None,
+) -> None:
+    """Abre a Central de Afiliados para o login manual e salva a sessao usada no gerador."""
+    setup_logging(logging.INFO)
+    affiliate = load_settings(config).publishing.affiliate
+    builder = AffiliateLinkBuilder(affiliate)
+    console.print(f"Faca login na janela que abrir ({affiliate.generator_url}).")
+    try:
+        target = builder.save_session(affiliate.login_timeout_ms)
+    except PlaywrightTimeoutError as exc:
+        console.print("[red]Login nao concluido a tempo[/red]: nada foi salvo.")
+        raise typer.Exit(code=1) from exc
+    console.print(f"[green]Sessao salva[/green]: {target}")
+
+
+@app.command("affiliate-link")
+def affiliate_link(
+    permalink: Annotated[str, typer.Option("--url", help="Permalink do anuncio no ML.")],
+    config: ConfigOption = None,
+) -> None:
+    """Gera (ou le do cache) o link curto oficial de um permalink, para conferir a sessao."""
+    setup_logging(logging.INFO)
+    affiliate = load_settings(config).publishing.affiliate
+    short_link = AffiliateLinkBuilder(affiliate).short_link(permalink)
+    if short_link is None:
+        console.print("[red]Sem link oficial[/red]: a publicacao usaria a tag manual.")
+        raise typer.Exit(code=1)
+    console.print(f"[green]{short_link}[/green]")
 
 
 @app.command()

@@ -67,10 +67,24 @@ def make_script() -> VideoScript:
     return VideoScript(product_id="MLB123", scenes=scenes, estimated_duration_seconds=32.0)
 
 
+class FakeLinkBuilder:
+    """Central de Afiliados de mentira: devolve o link curto combinado (ou None, se caiu)."""
+
+    def __init__(self, short_link: str | None) -> None:
+        self._short_link = short_link
+        self.asked: list[str] = []
+
+    def short_link(self, permalink: str) -> str | None:
+        self.asked.append(permalink)
+        return self._short_link
+
+
 def make_config(**overrides: object) -> PublishingConfig:
     data: dict[str, object] = {
         "default_hashtags": ["achadinhos", "mercadolivre"],
         "hashtags_by_niche": {"Celulares": ["celular", "#tecnologia"]},
+        # sem a Central: o padrao destes testes e o link montado com a tag
+        "affiliate": {"enabled": False},
     }
     data.update(overrides)
     return PublishingConfig.model_validate(data)
@@ -106,6 +120,29 @@ def test_link_de_afiliado_recebe_a_tag_sem_duplicar_query():
     assert "ref=abc" in link
     assert "matt_word=afiliado123" in link
     assert builder.affiliate_link(link).count("matt_word") == 1
+
+
+def test_link_oficial_da_central_substitui_a_tag_manual():
+    """So o link curto da Central entra no rastreio de cliques do painel do ML."""
+    short_link = "https://mercadolivre.com/sec/2AbC3dE"
+    builder = MetadataBuilder(
+        make_config(), make_secrets(), link_builder=FakeLinkBuilder(short_link)
+    )
+
+    metadata = builder.build(make_product(), "Celulares")
+
+    assert metadata.affiliate_link == short_link
+    assert f"🛒 Compre aqui: {short_link}" in metadata.description
+    assert "matt_word" not in metadata.description
+
+
+def test_central_indisponivel_cai_na_tag_manual():
+    builder = MetadataBuilder(make_config(), make_secrets(), link_builder=FakeLinkBuilder(None))
+
+    metadata = builder.build(make_product(), "Celulares")
+
+    assert "matt_word=afiliado123" in metadata.affiliate_link
+    assert metadata.affiliate_link.startswith("https://produto.mercadolivre.com.br/")
 
 
 def test_sem_tag_de_afiliado_o_link_fica_intacto(caplog):

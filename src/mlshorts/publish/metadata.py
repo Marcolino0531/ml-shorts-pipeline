@@ -9,6 +9,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from mlshorts.config import PublishingConfig, Secrets, get_secrets
 from mlshorts.models import Product, VideoMetadata, VideoScript
+from mlshorts.publish.affiliate import AffiliateLinkBuilder, LinkGenerator
 from mlshorts.storage.paths import Paths
 
 logger = logging.getLogger(__name__)
@@ -26,14 +27,27 @@ def niche_for(product: Product) -> str:
 class MetadataBuilder:
     """Monta o texto da publicacao a partir do produto coletado e do roteiro gerado."""
 
-    def __init__(self, config: PublishingConfig, secrets: Secrets | None = None) -> None:
+    def __init__(
+        self,
+        config: PublishingConfig,
+        secrets: Secrets | None = None,
+        link_builder: LinkGenerator | None = None,
+    ) -> None:
         self.config = config
         self.secrets = secrets or get_secrets()
+        self.link_builder = link_builder or AffiliateLinkBuilder(config.affiliate)
 
     def hashtags_for(self, niche: str) -> list[str]:
         return self.config.hashtags_for(niche)
 
     def affiliate_link(self, permalink: str) -> str:
+        """Link curto oficial da Central; se ela nao responder, o permalink com a tag manual."""
+        short_link = self.link_builder.short_link(permalink)
+        if short_link:
+            return short_link
+        return self.tagged_link(permalink)
+
+    def tagged_link(self, permalink: str) -> str:
         """Adiciona a tag de afiliado ao permalink sem duplicar parametros existentes."""
         tag = self.secrets.ml_affiliate_tag
         if not tag:

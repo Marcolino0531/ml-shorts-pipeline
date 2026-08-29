@@ -357,7 +357,8 @@ publishing:
 - **Metadados** (`MetadataBuilder`): título = gancho do roteiro (fallback no título do produto)
   + `#Shorts`, cortado em 100 caracteres; descrição com nota, unidades vendidas, link de
   afiliado e as hashtags do nicho + as globais (sem repetir, limitadas por `max_hashtags`);
-  o link recebe `matt_word=<ML_AFFILIATE_TAG>` sem duplicar parâmetros já presentes.
+  o link sai do gerador oficial da Central de Afiliados (abaixo) e, se ela não responder, do
+  `matt_word=<ML_AFFILIATE_TAG>` colado no permalink sem duplicar parâmetros já presentes.
 - **YouTube** (`YouTubePublisher`): `videos.insert(part="snippet,status")` com `MediaFileUpload`
   resumível em chunks; o vídeo entra como Shorts pelo formato vertical + `#Shorts` no título e
   na descrição. Precisa de `YOUTUBE_CLIENT_ID`/`YOUTUBE_CLIENT_SECRET`/`YOUTUBE_REFRESH_TOKEN`
@@ -372,6 +373,33 @@ publishing:
   quando `require_approval` está ligado, e no máximo `max_per_run` por rodada. As URLs dos
   posts ficam em `published_urls` e aparecem na aba Fila do dashboard.
 - `--dry-run` troca todos os destinos pelo `DryRunPublisher` (só loga) sem mexer no YAML.
+
+## Link de afiliado oficial (`affiliate-login`)
+
+O painel "Central de afiliados e criadores" só conta clique de link curto
+(`mercadolivre.com/sec/...`) gerado dentro da plataforma — o permalink com `matt_word` identifica
+a venda, mas não aparece nas métricas de clique. Por isso o `MetadataBuilder` pede o link ao
+gerador da Central, automatizado no mesmo Playwright que raspa a vitrine.
+
+```bash
+mlshorts affiliate-login                                   # abre o navegador, você faz o login
+mlshorts affiliate-link --url https://produto.mercadolivre.com.br/MLB-123  # confere a sessão
+```
+
+- `affiliate-login` abre a Central com janela visível e, assim que o login termina, grava os
+  cookies em `publishing.affiliate.session_state_path` (`data/ml_session.json`, fora do git).
+  Como o servidor não tem tela, rode o login numa máquina com desktop e copie o arquivo para a
+  VPS — ou use `ssh -X`.
+- Cada permalink resolvido vai para o cache em `publishing.affiliate.cache_path`, então
+  reprocessar o mesmo produto não abre navegador de novo.
+- Qualquer falha (sessão ausente/expirada, seletor mudado, timeout) vira WARNING e a publicação
+  segue com o `matt_word`: o pipeline nunca para por causa do gerador. Sessão expirada é
+  detectada pelo redirecionamento para `/lgz/login` e desliga o gerador pelo resto da rodada,
+  com o aviso `rode mlshorts affiliate-login de novo` no log — o mesmo padrão do refresh token
+  do YouTube. `mlshorts affiliate-link` sai com código 1 nesse caso, então dá para monitorar.
+- `publishing.affiliate.enabled: false` volta ao comportamento antigo (só `matt_word`).
+- A URL do gerador é configurável (`generator_url`) porque a Central muda de layout sem aviso;
+  se o link parar de sair, confira essa URL e os seletores em `publish/affiliate.py`.
 
 ## Estratégia de coleta
 

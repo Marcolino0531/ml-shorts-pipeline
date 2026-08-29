@@ -83,8 +83,18 @@ publishing:
   # destinos ativos: dry-run | youtube | tiktok (podem ser combinados)
   platforms:
     - dry-run
-  # parametro de rastreio do link de afiliado do Mercado Livre
+  # parametro de rastreio usado quando a Central de Afiliados nao responde
   affiliate_param: matt_word
+  affiliate:
+    # false publica so com o affiliate_param (a venda conta, o clique nao)
+    enabled: true
+    generator_url: https://www.mercadolivre.com.br/afiliados/linkbuilder
+    # sessao gravada por `mlshorts affiliate-login`
+    session_state_path: data/ml_session.json
+    cache_path: data/out/affiliate-links.json
+    timeout_ms: 30000
+    headless: true
+    login_timeout_ms: 300000
   max_hashtags: 8
   default_hashtags:
     - achadinhos

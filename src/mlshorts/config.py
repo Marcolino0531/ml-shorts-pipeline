@@ -154,6 +154,22 @@ class TikTokConfig(BaseModel):
     status_poll_seconds: float = 3.0
 
 
+class AffiliateConfig(BaseModel):
+    """Gerador oficial de link da Central de Afiliados (Playwright com sessao salva)."""
+
+    # false volta a montar o link a mao com `affiliate_param` (sem rastreio de cliques)
+    enabled: bool = True
+    generator_url: str = "https://www.mercadolivre.com.br/afiliados/linkbuilder"
+    # cookies da conta afiliada, gravados por `mlshorts affiliate-login`
+    session_state_path: str = "data/ml_session.json"
+    # permalink -> link curto ja gerado
+    cache_path: str = "data/out/affiliate-links.json"
+    timeout_ms: int = 30_000
+    headless: bool = True
+    # quanto tempo o `affiliate-login` espera o login manual terminar
+    login_timeout_ms: int = 300_000
+
+
 class PublishingConfig(BaseModel):
     """Controle de ritmo de publicacao: nunca postar tudo de uma vez."""
 
@@ -176,6 +192,7 @@ class PublishingConfig(BaseModel):
     max_hashtags: int = 8
     # parametro de rastreio do programa de afiliados do Mercado Livre
     affiliate_param: str = "matt_word"
+    affiliate: AffiliateConfig = Field(default_factory=AffiliateConfig)
     youtube: YouTubeConfig = Field(default_factory=YouTubeConfig)
     tiktok: TikTokConfig = Field(default_factory=TikTokConfig)
 

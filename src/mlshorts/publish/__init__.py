@@ -1,5 +1,6 @@
 """Etapa 5: metadados, publicacao nas redes e controle de ritmo (fila + intervalo por nicho)."""
 
+from mlshorts.publish.affiliate import AffiliateLinkBuilder, LinkCache, SessionExpired
 from mlshorts.publish.errors import PublishError
 from mlshorts.publish.metadata import MetadataBuilder, MetadataService
 from mlshorts.publish.publishers import MultiPublisher, build_publisher
@@ -14,8 +15,10 @@ from mlshorts.publish.tiktok import TikTokPublisher
 from mlshorts.publish.youtube import YouTubePublisher
 
 __all__ = [
+    "AffiliateLinkBuilder",
     "DryRunPublisher",
     "JsonPublicationStore",
+    "LinkCache",
     "MetadataBuilder",
     "MetadataService",
     "MultiPublisher",
@@ -23,6 +26,7 @@ __all__ = [
     "PublicationStore",
     "PublishError",
     "Publisher",
+    "SessionExpired",
     "SqlitePublicationStore",
     "TikTokPublisher",
     "YouTubePublisher",
