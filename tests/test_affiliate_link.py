@@ -28,8 +28,10 @@ class FakePage:
         renders_before_link: int = 0,
         polls_before_field: int = 0,
         waits_on_login: int = 0,
+        navigations: int = 0,
         url: str = GENERATOR_URL,
     ) -> None:
+        self.navigations = navigations
         self.url = LOGIN_URL if waits_on_login else url
         self.logged_in_url = url
         self.renders_before_link = renders_before_link
@@ -51,7 +53,16 @@ class FakePage:
     def click(self, selector: str) -> None:
         self.clicked.append(selector)
 
+    def _navigating(self) -> None:
+        """Playwright derruba o contexto quando a pagina navega no meio da leitura."""
+        if self.navigations > 0:
+            self.navigations -= 1
+            raise PlaywrightError(
+                "Execution context was destroyed, most likely because of a navigation"
+            )
+
     def query_selector(self, selector: str) -> object | None:
+        self._navigating()
         if selector == "textarea[name='urls']":
             self._field_polls += 1
             return object() if self._field_polls > self.polls_before_field else None
@@ -63,6 +74,7 @@ class FakePage:
             self.url = self.logged_in_url
 
     def content(self) -> str:
+        self._navigating()
         self._reads += 1
         if self._reads > self.renders_before_link:
             return f"<div class='result'><a href='{SHORT_LINK}'>{SHORT_LINK}</a></div>"
@@ -189,6 +201,22 @@ def test_login_manual_espera_sair_da_tela_de_login(tmp_path: Path) -> None:
 
     assert builder.wait_for_generator(page, 5000, abort_on_login=False)
     assert page.waits == 4
+
+
+def test_navegacao_no_meio_da_checagem_nao_derruba_o_login(tmp_path: Path) -> None:
+    """Redirecionamento pos-login destroi o contexto: e "ainda nao pronto", nao erro fatal."""
+    builder = AffiliateLinkBuilder(make_config(tmp_path))
+    page = FakePage(navigations=3)
+
+    assert builder.wait_for_generator(page, 5000, abort_on_login=False)
+    assert page.waits == 3
+
+
+def test_navegacao_no_meio_da_espera_do_link_nao_derruba_a_geracao(tmp_path: Path) -> None:
+    builder = AffiliateLinkBuilder(make_config(tmp_path))
+    page = FakePage(navigations=2)
+
+    assert builder.generate_on_page(page, PERMALINK) == SHORT_LINK
 
 
 def test_reconhece_a_tela_de_login_com_url_ofuscada(tmp_path: Path) -> None:
