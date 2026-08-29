@@ -16,4 +16,6 @@ data/audio/*
 data/video/*
 data/out/*
 data/smoke/
+# cookies da conta afiliada do Mercado Livre
+data/ml_session.json
 !data/**/.gitkeep
