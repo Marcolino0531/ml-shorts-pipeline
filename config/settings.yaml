@@ -88,7 +88,8 @@ publishing:
   affiliate:
     # false publica so com o affiliate_param (a venda conta, o clique nao)
     enabled: true
-    generator_url: https://www.mercadolivre.com.br/afiliados/linkbuilder
+    # o #hub e parte da rota: sem ele a Central responde "Hubo un error accediendo a esta pagina"
+    generator_url: https://www.mercadolivre.com.br/afiliados/linkbuilder#hub
     # sessao gravada por `mlshorts affiliate-login`
     session_state_path: data/ml_session.json
     cache_path: data/out/affiliate-links.json

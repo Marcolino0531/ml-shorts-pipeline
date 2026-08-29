@@ -159,7 +159,7 @@ class AffiliateConfig(BaseModel):
 
     # false volta a montar o link a mao com `affiliate_param` (sem rastreio de cliques)
     enabled: bool = True
-    generator_url: str = "https://www.mercadolivre.com.br/afiliados/linkbuilder"
+    generator_url: str = "https://www.mercadolivre.com.br/afiliados/linkbuilder#hub"
     # cookies da conta afiliada, gravados por `mlshorts affiliate-login`
     session_state_path: str = "data/ml_session.json"
     # permalink -> link curto ja gerado
