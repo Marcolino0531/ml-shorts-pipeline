@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from rich.console import Console
 from rich.table import Table
@@ -413,11 +414,14 @@ def affiliate_login(
     setup_logging(logging.INFO)
     affiliate = load_settings(config).publishing.affiliate
     builder = AffiliateLinkBuilder(affiliate)
-    console.print(f"Faca login na janela que abrir ({affiliate.generator_url}).")
+    console.print(
+        f"Faca login na janela que abrir ({affiliate.generator_url}). "
+        "A janela fecha sozinha quando o gerador de link aparecer na tela."
+    )
     try:
         target = builder.save_session(affiliate.login_timeout_ms)
-    except PlaywrightTimeoutError as exc:
-        console.print("[red]Login nao concluido a tempo[/red]: nada foi salvo.")
+    except (PlaywrightTimeoutError, PlaywrightError, RuntimeError) as exc:
+        console.print(f"[red]Sessao nao salva[/red]: {exc}")
         raise typer.Exit(code=1) from exc
     console.print(f"[green]Sessao salva[/green]: {target}")
 
