@@ -15,7 +15,7 @@ import re
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, TypeVar
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, sync_playwright
@@ -25,10 +25,13 @@ from mlshorts.config import AffiliateConfig
 
 logger = logging.getLogger(__name__)
 
+_T = TypeVar("_T")
+
 SHORT_LINK_RE = re.compile(r"https://(?:www\.)?mercadolivre\.com(?:\.br)?/sec/[A-Za-z0-9]+")
 # a jornada de login do ML tem varios caminhos sob /lgz/ (/lgz/login, /lgz/msl/login/<blob>...)
 LOGIN_URL_MARKERS = ("/lgz/", "/login")
 POLL_INTERVAL_MS = 500
+SESSION_SETTLE_MS = 2_000
 # rotulos que a Central usa no campo e no botao; o primeiro que existir na pagina e usado
 URL_FIELD_SELECTORS = (
     "textarea[name='urls']",
@@ -176,7 +179,9 @@ class AffiliateLinkBuilder:
             if abort_on_login:
                 self._ensure_logged_in(page)
             if not _is_login_url(page.url):
-                selector = _first_present_or_none(page, URL_FIELD_SELECTORS)
+                selector = _while_navigating(
+                    lambda: _first_present_or_none(page, URL_FIELD_SELECTORS), None
+                )
                 if selector is not None:
                     return selector
             if waited >= timeout_ms:
@@ -190,7 +195,8 @@ class AffiliateLinkBuilder:
         waited = 0
         while True:
             self._ensure_logged_in(page)
-            match = SHORT_LINK_RE.search(page.content())
+            html = _while_navigating(page.content, "")
+            match = SHORT_LINK_RE.search(html)
             if match is not None:
                 return match.group(0)
             if waited >= deadline:
@@ -230,10 +236,24 @@ class AffiliateLinkBuilder:
             page.goto(self.config.generator_url)
             # a janela fica aberta esperando o login manual: o gerador na tela e o sinal de pronto
             self.wait_for_generator(page, login_timeout_ms, abort_on_login=False)
+            page.wait_for_timeout(SESSION_SETTLE_MS)  # deixa os ultimos cookies do login assentarem
             context.storage_state(path=str(target))
             context.close()
             browser.close()
         return target
+
+
+def _while_navigating(read: Callable[[], _T], pending: _T) -> _T:
+    """Le a pagina tolerando navegacao no meio da leitura.
+
+    Enquanto o login redireciona, o Playwright derruba o contexto de execucao no meio do
+    `query_selector`/`content`; isso e "ainda nao pronto", nao falha do comando.
+    """
+    try:
+        return read()
+    except PlaywrightError as exc:
+        logger.debug("leitura durante navegacao ignorada: %s", exc)
+        return pending
 
 
 def _is_login_url(url: str) -> bool:
